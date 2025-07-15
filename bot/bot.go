@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -154,7 +155,7 @@ func (tb *TelegramBot) startWebhook() error {
 		log.Printf("Telegram callback failed: %s", info.LastErrorMessage)
 	}
 
-	// Start HTTP server
+	// Start HTTPS server with TLS
 	router := mux.NewRouter()
 	router.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
 		update := tgbotapi.Update{}
@@ -166,7 +167,21 @@ func (tb *TelegramBot) startWebhook() error {
 		tb.processUpdate(&update)
 	}).Methods("POST")
 
-	return http.ListenAndServe(fmt.Sprintf(":%d", tb.conf.Telegram.WebhookPort), router)
+	// 检查环境变量中是否有TLS配置
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+
+	if certFile != "" && keyFile != "" {
+		// 使用HTTPS
+		log.Printf("Starting webhook server with TLS on port %d", tb.conf.Telegram.WebhookPort)
+		return http.ListenAndServeTLS(fmt.Sprintf(":%d", tb.conf.Telegram.WebhookPort),
+			certFile, keyFile, router)
+	} else {
+		// 如果没有配置证书，记录警告并使用HTTP（仅用于开发环境）
+		log.Printf("WARNING: Running webhook server without TLS. This should only be used in development!")
+		log.Printf("To enable TLS, set TLS_CERT_FILE and TLS_KEY_FILE environment variables")
+		return http.ListenAndServe(fmt.Sprintf(":%d", tb.conf.Telegram.WebhookPort), router)
+	}
 }
 
 // startTimeoutCleanup 启动超时清理机制

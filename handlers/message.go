@@ -260,7 +260,7 @@ func (h *MessageHandler) getAIReplyWithStreaming(userMessage string, message *tg
 		Duration:        time.Since(startTime),
 		Provider:        usedProvider,
 		Model:           actualModel,
-		TTL:             24 * time.Hour, // 默认24小时TTL，可以从配置读取
+		TTL:             24 * time.Hour,                                                                // 默认24小时TTL，可以从配置读取
 		IsCachedReply:   inputTokens == 0 && outputTokens == 0 && strings.Contains(response, "💾 缓存回复"), // 判断是否为缓存回复
 	}
 

@@ -344,7 +344,7 @@ func (cm *ConversationManager) GetResponseWithCallback(chatID int64, userMessage
 		// 确定实际使用的提供商和模型
 		actualProvider := preferredProvider
 		actualModel := preferredModel
-		
+
 		// 如果没有指定，从服务获取默认值
 		if actualProvider == "" || actualModel == "" {
 			defaultProvider, defaultModel := cm.multiChatService.GetDefaultProviderAndModel()
@@ -360,18 +360,18 @@ func (cm *ConversationManager) GetResponseWithCallback(chatID int64, userMessage
 		cachedResponse, err := cm.redisClient.GetAICache(actualProvider, actualModel, userMessage)
 		if err == nil && cachedResponse != "" {
 			log.Printf("AI cache hit for chat %d: %s/%s", chatID, actualProvider, actualModel)
-			
+
 			// 发送缓存回复，添加缓存标识
 			responseWithCacheNote := cachedResponse + "\n\n💾 缓存回复"
-			
+
 			// 调用回调函数发送完整响应
 			if callback != nil {
 				callback(responseWithCacheNote, true)
 			}
-			
+
 			// 对于缓存回复，不添加到对话历史，不消耗轮数，返回特殊标识
 			cm.conversationsMutex.Unlock()
-			
+
 			// 返回缓存标识，tokens为0，不影响轮数
 			return responseWithCacheNote, 0, 0, time.Since(start), remainingRounds + 1, false, actualProvider, nil
 		}
@@ -418,7 +418,7 @@ func (cm *ConversationManager) GetResponseWithCallback(chatID int64, userMessage
 		if actualModel == "" {
 			actualModel = cm.multiChatService.GetDefaultModel(usedProvider)
 		}
-		
+
 		// 存储到AI缓存
 		if cacheErr := cm.redisClient.SetAICache(usedProvider, actualModel, userMessage, response); cacheErr != nil {
 			log.Printf("Failed to cache AI response for chat %d: %v", chatID, cacheErr)

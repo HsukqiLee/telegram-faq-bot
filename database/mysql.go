@@ -53,7 +53,31 @@ func (m *MySQLDB) QueryByID(id int, matchType MatchType) (*Entry, error) {
 		return nil, fmt.Errorf("invalid match type: %s", matchType)
 	}
 
-	query := fmt.Sprintf("SELECT id, `key`, `value` FROM %s WHERE id = ?", tableName)
+	// 使用白名单验证表名以防止SQL注入
+	validTables := map[string]bool{
+		"exact":    true,
+		"contains": true,
+		"regex":    true,
+		"prefix":   true,
+		"suffix":   true,
+	}
+	if !validTables[tableName] {
+		return nil, fmt.Errorf("invalid table name: %s", tableName)
+	}
+
+	var query string
+	switch tableName {
+	case "exact":
+		query = "SELECT id, `key`, `value` FROM exact WHERE id = ?"
+	case "contains":
+		query = "SELECT id, `key`, `value` FROM contains WHERE id = ?"
+	case "regex":
+		query = "SELECT id, `key`, `value` FROM regex WHERE id = ?"
+	case "prefix":
+		query = "SELECT id, `key`, `value` FROM prefix WHERE id = ?"
+	case "suffix":
+		query = "SELECT id, `key`, `value` FROM suffix WHERE id = ?"
+	}
 	row := m.db.QueryRow(query, id)
 
 	var entry Entry
@@ -118,7 +142,31 @@ func (m *MySQLDB) DeleteEntry(key string, matchType MatchType) error {
 }
 
 func (m *MySQLDB) ListEntries(table string) ([]Entry, error) {
-	query := fmt.Sprintf("SELECT id, `key`, `value` FROM %s", table)
+	// 使用白名单验证表名以防止SQL注入
+	validTables := map[string]bool{
+		"exact":    true,
+		"contains": true,
+		"regex":    true,
+		"prefix":   true,
+		"suffix":   true,
+	}
+	if !validTables[table] {
+		return nil, fmt.Errorf("invalid table name: %s", table)
+	}
+
+	var query string
+	switch table {
+	case "exact":
+		query = "SELECT id, `key`, `value` FROM exact"
+	case "contains":
+		query = "SELECT id, `key`, `value` FROM contains"
+	case "regex":
+		query = "SELECT id, `key`, `value` FROM regex"
+	case "prefix":
+		query = "SELECT id, `key`, `value` FROM prefix"
+	case "suffix":
+		query = "SELECT id, `key`, `value` FROM suffix"
+	}
 	rows, err := m.db.Query(query)
 	if err != nil {
 		return nil, err
@@ -248,7 +296,32 @@ func (m *MySQLDB) AddEntryRegex(key string, value string) error {
 }
 
 func (m *MySQLDB) addEntry(key string, value string, table string) error {
-	_, err := m.db.Exec(fmt.Sprintf("INSERT INTO %s (`key`, `value`) VALUES (?, ?)", table), key, value)
+	// 使用白名单验证表名以防止SQL注入
+	validTables := map[string]bool{
+		"exact":    true,
+		"contains": true,
+		"regex":    true,
+		"prefix":   true,
+		"suffix":   true,
+	}
+	if !validTables[table] {
+		return fmt.Errorf("invalid table name: %s", table)
+	}
+
+	var query string
+	switch table {
+	case "exact":
+		query = "INSERT INTO exact (`key`, `value`) VALUES (?, ?)"
+	case "contains":
+		query = "INSERT INTO contains (`key`, `value`) VALUES (?, ?)"
+	case "regex":
+		query = "INSERT INTO regex (`key`, `value`) VALUES (?, ?)"
+	case "prefix":
+		query = "INSERT INTO prefix (`key`, `value`) VALUES (?, ?)"
+	case "suffix":
+		query = "INSERT INTO suffix (`key`, `value`) VALUES (?, ?)"
+	}
+	_, err := m.db.Exec(query, key, value)
 	return err
 }
 
@@ -265,7 +338,32 @@ func (m *MySQLDB) UpdateEntryRegex(key string, value string) error {
 }
 
 func (m *MySQLDB) updateEntry(key string, value string, table string) error {
-	_, err := m.db.Exec(fmt.Sprintf("UPDATE %s SET `value` = ? WHERE `key` = ?", table), value, key)
+	// 使用白名单验证表名以防止SQL注入
+	validTables := map[string]bool{
+		"exact":    true,
+		"contains": true,
+		"regex":    true,
+		"prefix":   true,
+		"suffix":   true,
+	}
+	if !validTables[table] {
+		return fmt.Errorf("invalid table name: %s", table)
+	}
+
+	var query string
+	switch table {
+	case "exact":
+		query = "UPDATE exact SET `value` = ? WHERE `key` = ?"
+	case "contains":
+		query = "UPDATE contains SET `value` = ? WHERE `key` = ?"
+	case "regex":
+		query = "UPDATE regex SET `value` = ? WHERE `key` = ?"
+	case "prefix":
+		query = "UPDATE prefix SET `value` = ? WHERE `key` = ?"
+	case "suffix":
+		query = "UPDATE suffix SET `value` = ? WHERE `key` = ?"
+	}
+	_, err := m.db.Exec(query, value, key)
 	return err
 }
 
@@ -282,7 +380,32 @@ func (m *MySQLDB) DeleteEntryRegex(key string) error {
 }
 
 func (m *MySQLDB) deleteEntry(key string, table string) error {
-	_, err := m.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE `key` = ?", table), key)
+	// 使用白名单验证表名以防止SQL注入
+	validTables := map[string]bool{
+		"exact":    true,
+		"contains": true,
+		"regex":    true,
+		"prefix":   true,
+		"suffix":   true,
+	}
+	if !validTables[table] {
+		return fmt.Errorf("invalid table name: %s", table)
+	}
+
+	var query string
+	switch table {
+	case "exact":
+		query = "DELETE FROM exact WHERE `key` = ?"
+	case "contains":
+		query = "DELETE FROM contains WHERE `key` = ?"
+	case "regex":
+		query = "DELETE FROM regex WHERE `key` = ?"
+	case "prefix":
+		query = "DELETE FROM prefix WHERE `key` = ?"
+	case "suffix":
+		query = "DELETE FROM suffix WHERE `key` = ?"
+	}
+	_, err := m.db.Exec(query, key)
 	return err
 }
 
@@ -299,7 +422,32 @@ func (m *MySQLDB) ListEntriesRegex() ([]Entry, error) {
 }
 
 func (m *MySQLDB) listEntries(table string) ([]Entry, error) {
-	rows, err := m.db.Query(fmt.Sprintf("SELECT id, `key`, `value` FROM %s", table))
+	// 使用白名单验证表名以防止SQL注入
+	validTables := map[string]bool{
+		"exact":    true,
+		"contains": true,
+		"regex":    true,
+		"prefix":   true,
+		"suffix":   true,
+	}
+	if !validTables[table] {
+		return nil, fmt.Errorf("invalid table name: %s", table)
+	}
+
+	var query string
+	switch table {
+	case "exact":
+		query = "SELECT id, `key`, `value` FROM exact"
+	case "contains":
+		query = "SELECT id, `key`, `value` FROM contains"
+	case "regex":
+		query = "SELECT id, `key`, `value` FROM regex"
+	case "prefix":
+		query = "SELECT id, `key`, `value` FROM prefix"
+	case "suffix":
+		query = "SELECT id, `key`, `value` FROM suffix"
+	}
+	rows, err := m.db.Query(query)
 	if err != nil {
 		return nil, err
 	}

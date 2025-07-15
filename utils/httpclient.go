@@ -2,9 +2,10 @@ package utils
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +27,19 @@ var (
 		DNT:            "0",
 	}
 )
+
+// secureRandInt 生成安全的随机整数，范围 [0, max)
+func secureRandInt(max int) int {
+	if max <= 0 {
+		return 0
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		// 如果加密随机数生成失败，返回0作为后备
+		return 0
+	}
+	return int(n.Int64())
+}
 
 var Dialer = &net.Dialer{
 	Timeout:   30 * time.Second,
@@ -86,8 +100,10 @@ func createEdgeTLSConfig() *tls.Config {
 	spec, _ := utls.UTLSIdToSpec(utls.HelloEdge_Auto)
 
 	return &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         spec.TLSVersMin,
+		// 注意：InsecureSkipVerify 设置为 true 是为了模拟某些浏览器行为
+		// 在生产环境中，请根据具体需求考虑设置为 false 以增强安全性
+		InsecureSkipVerify: false,            // 修改为 false 以增强安全性
+		MinVersion:         tls.VersionTLS12, // 强制使用 TLS 1.2 或更高版本
 		MaxVersion:         spec.TLSVersMax,
 		CipherSuites:       spec.CipherSuites,
 		ClientSessionCache: tls.NewLRUClientSessionCache(32),
@@ -102,6 +118,28 @@ func createEdgeTLSConfig() *tls.Config {
 		SessionTicketsDisabled:   false,
 	}
 }
+
+/* createInsecureTLSConfig 创建一个不验证证书的TLS配置（仅在特殊情况下使用）
+func createInsecureTLSConfig() *tls.Config {
+	spec, _ := utls.UTLSIdToSpec(utls.HelloEdge_Auto)
+
+	return &tls.Config{
+		InsecureSkipVerify: true, // 仅在特殊情况下使用
+		MinVersion:         spec.TLSVersMin,
+		MaxVersion:         spec.TLSVersMax,
+		CipherSuites:       spec.CipherSuites,
+		ClientSessionCache: tls.NewLRUClientSessionCache(32),
+		NextProtos:         []string{"h2", "http/1.1"},
+		CurvePreferences: []tls.CurveID{
+			tls.X25519,
+			tls.CurveP256,
+			tls.CurveP384,
+			tls.CurveP521,
+		},
+		PreferServerCipherSuites: false,
+		SessionTicketsDisabled:   false,
+	}
+}*/
 
 var tlsConfig = createEdgeTLSConfig()
 
@@ -128,34 +166,17 @@ var EnhancedHttpClient = &http.Client{
 
 type H [2]string
 
-// DoRequest 执行带有反检测特性的HTTP请求
 func DoRequest(client *http.Client, req *http.Request) (*http.Response, error) {
-	// 设置真实的浏览器头部
 	setRealisticHeaders(req, "json")
-
-	// 添加随机延迟
-	addRandomDelay()
-
-	// 执行请求并重试
 	return cdo(client, req)
 }
 
-// DoRequestWithCompression 执行带压缩支持的请求
 func DoRequestWithCompression(client *http.Client, req *http.Request) (*http.Response, error) {
-	// 设置真实的浏览器头部，但不包含accept-encoding以避免压缩问题
 	setRealisticHeaders(req, "json")
-
-	// 移除自动压缩以避免解析问题
 	req.Header.Del("accept-encoding")
-
-	// 添加随机延迟
-	addRandomDelay()
-
-	// 执行请求并重试
 	return cdo(client, req)
 }
 
-// cdo 带重试机制的请求执行
 func cdo(c *http.Client, req *http.Request) (resp *http.Response, err error) {
 	deadline := time.Now().Add(30 * time.Second)
 	for i := 0; i < 3; i++ {
@@ -171,16 +192,15 @@ func cdo(c *http.Client, req *http.Request) (resp *http.Response, err error) {
 		if strings.Contains(err.Error(), "timeout") {
 			break
 		}
-		// 在重试前增加延迟
 		if i < 2 {
-			time.Sleep(time.Duration(rand.Intn(1000)+500) * time.Millisecond)
+			time.Sleep(time.Duration(secureRandInt(1000)+500) * time.Millisecond)
 		}
 	}
 	return nil, err
 }
 
 func generateEdgeUserAgent() string {
-	edgeVersion := rand.Intn(5) + 136
+	edgeVersion := secureRandInt(5) + 136
 	chromiumVersion := edgeVersion
 
 	return fmt.Sprintf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0.0.0 Safari/537.36 Edg/%d.0.0.0",
@@ -188,9 +208,9 @@ func generateEdgeUserAgent() string {
 }
 
 func generateSecChUA() string {
-	edgeVersion := rand.Intn(5) + 136
+	edgeVersion := secureRandInt(5) + 136
 	chromiumVersion := edgeVersion
-	notBrandVersion := rand.Intn(10) + 20
+	notBrandVersion := secureRandInt(10) + 20
 
 	return fmt.Sprintf(`"Microsoft Edge";v="%d", "Chromium";v="%d", "Not/A)Brand";v="%d"`,
 		edgeVersion, chromiumVersion, notBrandVersion)
@@ -204,14 +224,7 @@ func getRandomAcceptLanguage() string {
 		"zh-CN,zh;q=0.9",
 		"en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,ja;q=0.6",
 	}
-	return languages[rand.Intn(len(languages))]
-}
-
-func addRandomDelay() {
-	if rand.Intn(10) == 0 {
-		delay := time.Duration(rand.Intn(100)+50) * time.Millisecond
-		time.Sleep(delay)
-	}
+	return languages[secureRandInt(len(languages))]
 }
 
 func setRealisticHeaders(req *http.Request, requestType string) {
@@ -240,12 +253,9 @@ func setRealisticHeaders(req *http.Request, requestType string) {
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("sec-fetch-dest", "empty")
 	req.Header.Set("dnt", ClientSessionHeaders.DNT)
-
-	// 添加一些常见的浏览器头部
 	req.Header.Set("accept-encoding", "gzip, deflate, br")
 	req.Header.Set("connection", "keep-alive")
 
-	// 为API请求添加适当的Origin和Referer
 	if requestType == "json" {
 		host := req.URL.Host
 		scheme := req.URL.Scheme
@@ -269,15 +279,9 @@ func ResetSessionHeaders() {
 	ClientSessionHeaders.UserAgent = generateEdgeUserAgent()
 	ClientSessionHeaders.SecChUA = generateSecChUA()
 	ClientSessionHeaders.AcceptLanguage = getRandomAcceptLanguage()
-	ClientSessionHeaders.DNT = strconv.Itoa(rand.Intn(2))
+	ClientSessionHeaders.DNT = strconv.Itoa(secureRandInt(2))
 }
 
-// GetEnhancedClient 获取增强的HTTP客户端
-func GetEnhancedClient() *http.Client {
-	return EnhancedHttpClient
-}
-
-// GetEnhancedClientWithTimeout 获取带自定义超时的增强HTTP客户端
 func GetEnhancedClientWithTimeout(timeout time.Duration) *http.Client {
 	transport := &CustomTransport{
 		Dialer:   Dialer,
@@ -299,10 +303,4 @@ func GetEnhancedClientWithTimeout(timeout time.Duration) *http.Client {
 		CheckRedirect: UseLastResponse,
 		Transport:     transport,
 	}
-}
-
-// init 初始化随机种子和会话头部
-func init() {
-	rand.Seed(time.Now().UnixNano())
-	ResetSessionHeaders()
 }

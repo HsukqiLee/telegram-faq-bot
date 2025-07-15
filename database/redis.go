@@ -2,7 +2,7 @@ package database
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -50,7 +50,7 @@ func NewRedisClient(conf *config.RedisConfig) (*RedisClient, error) {
 		aiCacheTTL = 1 * time.Hour // 默认1小时
 	}
 
-	log.Printf("Redis client connected successfully (TTL: %v, AI Cache: %v, AI Cache TTL: %v)", 
+	log.Printf("Redis client connected successfully (TTL: %v, AI Cache: %v, AI Cache TTL: %v)",
 		ttl, conf.AICacheEnabled, aiCacheTTL)
 
 	return &RedisClient{
@@ -178,8 +178,8 @@ func (r *RedisClient) GetAICache(provider, model, question string) (string, erro
 
 // generateAICacheKey 生成AI缓存键
 func (r *RedisClient) generateAICacheKey(provider, model, question string) string {
-	// 使用MD5哈希来生成固定长度的问题标识
-	hash := md5.Sum([]byte(question))
+	// 使用SHA-256哈希来生成固定长度的问题标识
+	hash := sha256.Sum256([]byte(question))
 	questionHash := fmt.Sprintf("%x", hash)
 	return fmt.Sprintf("ai_cache:%s:%s:%s", provider, model, questionHash)
 }

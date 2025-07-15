@@ -107,7 +107,7 @@ type RedisConfig struct {
 	Password string `json:"password,omitempty"`
 	Database int    `json:"database"`
 	TTL      int    `json:"ttl"` // TTL in seconds for conversation data
-	
+
 	// AI对话缓存配置
 	AICacheEnabled bool `json:"ai_cache_enabled"` // 是否开启AI对话缓存
 	AICacheTTL     int  `json:"ai_cache_ttl"`     // AI对话缓存过期时间(秒)
