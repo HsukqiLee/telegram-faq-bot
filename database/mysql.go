@@ -254,64 +254,23 @@ func (m *MySQLDB) Reload() error {
 		return err
 	}
 
-	// Create tables if not exists
-	_, err = m.db.Exec(`
-        CREATE TABLE IF NOT EXISTS exact (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            ` + "`key`" + ` TEXT NOT NULL,
-            value TEXT NOT NULL,
-            content_type TEXT DEFAULT 'text',
-            telegraph_url TEXT DEFAULT '',
-            telegraph_path TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS contains (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            ` + "`key`" + ` TEXT NOT NULL,
-            value TEXT NOT NULL,
-            content_type TEXT DEFAULT 'text',
-            telegraph_url TEXT DEFAULT '',
-            telegraph_path TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS regex (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            ` + "`key`" + ` TEXT NOT NULL,
-            value TEXT NOT NULL,
-            content_type TEXT DEFAULT 'text',
-            telegraph_url TEXT DEFAULT '',
-            telegraph_path TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS prefix (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            ` + "`key`" + ` TEXT NOT NULL,
-            value TEXT NOT NULL,
-            content_type TEXT DEFAULT 'text',
-            telegraph_url TEXT DEFAULT '',
-            telegraph_path TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS suffix (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            ` + "`key`" + ` TEXT NOT NULL,
-            value TEXT NOT NULL,
-            content_type TEXT DEFAULT 'text',
-            telegraph_url TEXT DEFAULT '',
-            telegraph_path TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS ai_models (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            provider VARCHAR(100) NOT NULL,
-            model_id VARCHAR(255) NOT NULL,
-            model_name VARCHAR(255) NOT NULL,
-            description TEXT DEFAULT '',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY unique_provider_model (provider, model_id)
-        );
-        CREATE TABLE IF NOT EXISTS user_preferences (
-            user_id BIGINT PRIMARY KEY,
-            preferred_model_id VARCHAR(255) NOT NULL,
-            preferred_provider VARCHAR(100) NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        );
-    `)
+	// Create tables if not exists using raw string literals to avoid SQL injection warnings
+	tableCreationQueries := []string{
+		"CREATE TABLE IF NOT EXISTS exact (id INTEGER PRIMARY KEY AUTO_INCREMENT, `key` TEXT NOT NULL, value TEXT NOT NULL, content_type TEXT DEFAULT 'text', telegraph_url TEXT DEFAULT '', telegraph_path TEXT DEFAULT '')",
+		"CREATE TABLE IF NOT EXISTS contains (id INTEGER PRIMARY KEY AUTO_INCREMENT, `key` TEXT NOT NULL, value TEXT NOT NULL, content_type TEXT DEFAULT 'text', telegraph_url TEXT DEFAULT '', telegraph_path TEXT DEFAULT '')",
+		"CREATE TABLE IF NOT EXISTS regex (id INTEGER PRIMARY KEY AUTO_INCREMENT, `key` TEXT NOT NULL, value TEXT NOT NULL, content_type TEXT DEFAULT 'text', telegraph_url TEXT DEFAULT '', telegraph_path TEXT DEFAULT '')",
+		"CREATE TABLE IF NOT EXISTS prefix (id INTEGER PRIMARY KEY AUTO_INCREMENT, `key` TEXT NOT NULL, value TEXT NOT NULL, content_type TEXT DEFAULT 'text', telegraph_url TEXT DEFAULT '', telegraph_path TEXT DEFAULT '')",
+		"CREATE TABLE IF NOT EXISTS suffix (id INTEGER PRIMARY KEY AUTO_INCREMENT, `key` TEXT NOT NULL, value TEXT NOT NULL, content_type TEXT DEFAULT 'text', telegraph_url TEXT DEFAULT '', telegraph_path TEXT DEFAULT '')",
+		"CREATE TABLE IF NOT EXISTS ai_models (id INTEGER PRIMARY KEY AUTO_INCREMENT, provider VARCHAR(100) NOT NULL, model_id VARCHAR(255) NOT NULL, model_name VARCHAR(255) NOT NULL, description TEXT DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY unique_provider_model (provider, model_id))",
+		"CREATE TABLE IF NOT EXISTS user_preferences (user_id BIGINT PRIMARY KEY, preferred_model_id VARCHAR(255) NOT NULL, preferred_provider VARCHAR(100) NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)",
+	}
+	
+	for _, query := range tableCreationQueries {
+		_, err = m.db.Exec(query)
+		if err != nil {
+			return fmt.Errorf("failed to create table: %v", err)
+		}
+	}
 	if err != nil {
 		return err
 	}
