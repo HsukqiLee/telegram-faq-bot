@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"regexp"
 
 	"TGFaqBot/config"
 
@@ -11,8 +10,9 @@ import (
 )
 
 type SQLiteDB struct {
-	filename string
-	db       *sql.DB
+	filename  string
+	db        *sql.DB
+	commonOps *CommonSQLOperations
 }
 
 func NewSQLiteDB(filename string) (*SQLiteDB, error) {
@@ -20,6 +20,7 @@ func NewSQLiteDB(filename string) (*SQLiteDB, error) {
 	if err := db.Reload(); err != nil {
 		return nil, err
 	}
+	db.commonOps = NewCommonSQLOperations(db.db)
 	return db, nil
 }
 
@@ -49,49 +50,8 @@ func (s *SQLiteDB) Query(query string) ([]Entry, error) {
 }
 
 func (s *SQLiteDB) QueryByID(id int, matchType MatchType) (*Entry, error) {
-	tableName := matchType.GetTableName()
-	if tableName == "" {
-		return nil, fmt.Errorf("invalid match type: %s", matchType)
-	}
-
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[tableName] {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
-
-	var query string
-	switch tableName {
-	case "exact":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact WHERE id = ?"
-	case "contains":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains WHERE id = ?"
-	case "regex":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex WHERE id = ?"
-	case "prefix":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM prefix WHERE id = ?"
-	case "suffix":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM suffix WHERE id = ?"
-	}
-	row := s.db.QueryRow(query, id)
-
-	var entry Entry
-	err := row.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("entry with ID %d not found in %s", id, tableName)
-		}
-		return nil, err
-	}
-
-	entry.MatchType = matchType // Set the MatchType before returning
-	return &entry, nil
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.QueryByID(id, matchType, columns)
 }
 
 func (s *SQLiteDB) AddEntry(key string, matchType MatchType, value string) error {
@@ -184,261 +144,69 @@ func (s *SQLiteDB) ListAllEntries() ([]Entry, error) {
 }
 
 func (s *SQLiteDB) QueryExact(query string) ([]Entry, error) {
-	return s.query(query, "exact")
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.QueryWithCondition(query, "exact", columns)
 }
 
 func (s *SQLiteDB) QueryContains(query string) ([]Entry, error) {
-	return s.query(query, "contains")
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.QueryWithCondition(query, "contains", columns)
 }
 
 func (s *SQLiteDB) QueryRegex(query string) ([]Entry, error) {
-	return s.query(query, "regex")
-}
-
-func (s *SQLiteDB) query(query string, table string) ([]Entry, error) {
-	var rows *sql.Rows
-	var err error
-
-	switch table {
-	case "exact":
-		rows, err = s.db.Query("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact WHERE `key` = ?", query)
-	case "contains":
-		rows, err = s.db.Query("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains WHERE `key` LIKE '%' || ? || '%'", query)
-	case "regex":
-		rows, err = s.db.Query("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex") // Regex matching in code
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		var entries []Entry
-		for rows.Next() {
-			var entry Entry
-			if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath); err != nil {
-				return nil, err
-			}
-			matched, _ := regexp.MatchString(query, entry.Key)
-			if matched {
-				entry.MatchType = MatchRegex
-				entries = append(entries, entry)
-			}
-		}
-		return entries, nil
-	default:
-		return nil, fmt.Errorf("invalid table name: %s", table)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []Entry
-	for rows.Next() {
-		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath); err != nil {
-			return nil, err
-		}
-		switch table {
-		case "exact":
-			entry.MatchType = MatchExact
-		case "contains":
-			entry.MatchType = MatchContains
-		case "regex":
-			entry.MatchType = MatchRegex
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.QueryWithCondition(query, "regex", columns)
 }
 
 func (s *SQLiteDB) AddEntryExact(key string, value string) error {
-	return s.addEntry(key, value, "exact")
+	return s.commonOps.AddEntry(key, value, "exact")
 }
 
 func (s *SQLiteDB) AddEntryContains(key string, value string) error {
-	return s.addEntry(key, value, "contains")
+	return s.commonOps.AddEntry(key, value, "contains")
 }
 
 func (s *SQLiteDB) AddEntryRegex(key string, value string) error {
-	return s.addEntry(key, value, "regex")
-}
-
-func (s *SQLiteDB) addEntry(key string, value string, table string) error {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "INSERT INTO exact (`key`, `value`) VALUES (?, ?)"
-	case "contains":
-		query = "INSERT INTO contains (`key`, `value`) VALUES (?, ?)"
-	case "regex":
-		query = "INSERT INTO regex (`key`, `value`) VALUES (?, ?)"
-	case "prefix":
-		query = "INSERT INTO prefix (`key`, `value`) VALUES (?, ?)"
-	case "suffix":
-		query = "INSERT INTO suffix (`key`, `value`) VALUES (?, ?)"
-	}
-	_, err := s.db.Exec(query, key, value)
-	return err
+	return s.commonOps.AddEntry(key, value, "regex")
 }
 
 func (s *SQLiteDB) UpdateEntryExact(key string, value string) error {
-	return s.updateEntry(key, value, "exact")
+	return s.commonOps.UpdateEntry(key, value, "exact")
 }
 
 func (s *SQLiteDB) UpdateEntryContains(key string, value string) error {
-	return s.updateEntry(key, value, "contains")
+	return s.commonOps.UpdateEntry(key, value, "contains")
 }
 
 func (s *SQLiteDB) UpdateEntryRegex(key string, value string) error {
-	return s.updateEntry(key, value, "regex")
-}
-
-func (s *SQLiteDB) updateEntry(key string, value string, table string) error {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "UPDATE exact SET `value` = ? WHERE `key` = ?"
-	case "contains":
-		query = "UPDATE contains SET `value` = ? WHERE `key` = ?"
-	case "regex":
-		query = "UPDATE regex SET `value` = ? WHERE `key` = ?"
-	case "prefix":
-		query = "UPDATE prefix SET `value` = ? WHERE `key` = ?"
-	case "suffix":
-		query = "UPDATE suffix SET `value` = ? WHERE `key` = ?"
-	}
-	_, err := s.db.Exec(query, value, key)
-	return err
+	return s.commonOps.UpdateEntry(key, value, "regex")
 }
 
 func (s *SQLiteDB) DeleteEntryExact(key string) error {
-	return s.deleteEntry(key, "exact")
+	return s.commonOps.DeleteEntry(key, "exact")
 }
 
 func (s *SQLiteDB) DeleteEntryContains(key string) error {
-	return s.deleteEntry(key, "contains")
+	return s.commonOps.DeleteEntry(key, "contains")
 }
 
 func (s *SQLiteDB) DeleteEntryRegex(key string) error {
-	return s.deleteEntry(key, "regex")
-}
-
-func (s *SQLiteDB) deleteEntry(key string, table string) error {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "DELETE FROM exact WHERE `key` = ?"
-	case "contains":
-		query = "DELETE FROM contains WHERE `key` = ?"
-	case "regex":
-		query = "DELETE FROM regex WHERE `key` = ?"
-	case "prefix":
-		query = "DELETE FROM prefix WHERE `key` = ?"
-	case "suffix":
-		query = "DELETE FROM suffix WHERE `key` = ?"
-	}
-	_, err := s.db.Exec(query, key)
-	return err
+	return s.commonOps.DeleteEntry(key, "regex")
 }
 
 func (s *SQLiteDB) ListEntriesExact() ([]Entry, error) {
-	return s.listEntries("exact")
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.ListEntries("exact", columns)
 }
 
 func (s *SQLiteDB) ListEntriesContains() ([]Entry, error) {
-	return s.listEntries("contains")
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.ListEntries("contains", columns)
 }
 
 func (s *SQLiteDB) ListEntriesRegex() ([]Entry, error) {
-	return s.listEntries("regex")
-}
-
-func (s *SQLiteDB) listEntries(table string) ([]Entry, error) {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return nil, fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact"
-	case "contains":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains"
-	case "regex":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex"
-	case "prefix":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM prefix"
-	case "suffix":
-		query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM suffix"
-	}
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []Entry
-	for rows.Next() {
-		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath); err != nil {
-			return nil, err
-		}
-		switch table {
-		case "exact":
-			entry.MatchType = MatchExact
-		case "contains":
-			entry.MatchType = MatchContains
-		case "regex":
-			entry.MatchType = MatchRegex
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
+	columns := []string{"id", "key", "value", "content_type", "telegraph_url", "telegraph_path"}
+	return s.commonOps.ListEntries("regex", columns)
 }
 
 func (s *SQLiteDB) ListSpecificEntries(matchTypes ...MatchType) ([]Entry, error) {
@@ -563,6 +331,9 @@ func (s *SQLiteDB) Reload() error {
 	if err != nil {
 		return err
 	}
+	
+	// 重新初始化common operations
+	s.commonOps = NewCommonSQLOperations(s.db)
 	return nil
 }
 

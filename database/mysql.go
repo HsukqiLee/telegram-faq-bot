@@ -4,14 +4,14 @@ import (
 	"TGFaqBot/config"
 	"database/sql"
 	"fmt"
-	"regexp"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 type MySQLDB struct {
-	cfg config.MySQLConfig
-	db  *sql.DB
+	cfg        config.MySQLConfig
+	db         *sql.DB
+	commonOps  *CommonSQLOperations
 }
 
 func NewMySQLDB(cfg config.MySQLConfig) (*MySQLDB, error) {
@@ -19,6 +19,7 @@ func NewMySQLDB(cfg config.MySQLConfig) (*MySQLDB, error) {
 	if err := db.Reload(); err != nil {
 		return nil, err
 	}
+	db.commonOps = NewCommonSQLOperations(db.db)
 	return db, nil
 }
 
@@ -48,49 +49,7 @@ func (m *MySQLDB) Query(query string) ([]Entry, error) {
 }
 
 func (m *MySQLDB) QueryByID(id int, matchType MatchType) (*Entry, error) {
-	tableName := matchType.GetTableName()
-	if tableName == "" {
-		return nil, fmt.Errorf("invalid match type: %s", matchType)
-	}
-
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[tableName] {
-		return nil, fmt.Errorf("invalid table name: %s", tableName)
-	}
-
-	var query string
-	switch tableName {
-	case "exact":
-		query = "SELECT id, `key`, `value` FROM exact WHERE id = ?"
-	case "contains":
-		query = "SELECT id, `key`, `value` FROM contains WHERE id = ?"
-	case "regex":
-		query = "SELECT id, `key`, `value` FROM regex WHERE id = ?"
-	case "prefix":
-		query = "SELECT id, `key`, `value` FROM prefix WHERE id = ?"
-	case "suffix":
-		query = "SELECT id, `key`, `value` FROM suffix WHERE id = ?"
-	}
-	row := m.db.QueryRow(query, id)
-
-	var entry Entry
-	err := row.Scan(&entry.ID, &entry.Key, &entry.Value)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("entry with ID %d not found in %s", id, tableName)
-		}
-		return nil, err
-	}
-
-	entry.MatchType = matchType // Set the MatchType before returning
-	return &entry, nil
+	return m.commonOps.QueryByID(id, matchType, nil)
 }
 
 func (m *MySQLDB) AddEntry(key string, matchType MatchType, value string) error {
@@ -142,54 +101,7 @@ func (m *MySQLDB) DeleteEntry(key string, matchType MatchType) error {
 }
 
 func (m *MySQLDB) ListEntries(table string) ([]Entry, error) {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return nil, fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "SELECT id, `key`, `value` FROM exact"
-	case "contains":
-		query = "SELECT id, `key`, `value` FROM contains"
-	case "regex":
-		query = "SELECT id, `key`, `value` FROM regex"
-	case "prefix":
-		query = "SELECT id, `key`, `value` FROM prefix"
-	case "suffix":
-		query = "SELECT id, `key`, `value` FROM suffix"
-	}
-	rows, err := m.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []Entry
-	for rows.Next() {
-		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
-			return nil, err
-		}
-		switch table {
-		case "exact":
-			entry.MatchType = MatchExact
-		case "contains":
-			entry.MatchType = MatchContains
-		case "regex":
-			entry.MatchType = MatchRegex
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
+	return m.commonOps.ListEntries(table, nil)
 }
 
 func (m *MySQLDB) ListAllEntries() ([]Entry, error) {
@@ -215,253 +127,63 @@ func (m *MySQLDB) ListAllEntries() ([]Entry, error) {
 }
 
 func (m *MySQLDB) QueryExact(query string) ([]Entry, error) {
-	return m.query(query, "exact")
+	return m.commonOps.QueryWithCondition(query, "exact", nil)
 }
 
 func (m *MySQLDB) QueryContains(query string) ([]Entry, error) {
-	return m.query(query, "contains")
+	return m.commonOps.QueryWithCondition(query, "contains", nil)
 }
 
 func (m *MySQLDB) QueryRegex(query string) ([]Entry, error) {
-	return m.query(query, "regex")
-}
-
-func (m *MySQLDB) query(query string, table string) ([]Entry, error) {
-	var rows *sql.Rows
-	var err error
-
-	switch table {
-	case "exact":
-		rows, err = m.db.Query("SELECT id, `key`, `value` FROM exact WHERE `key` = ?", query)
-	case "contains":
-		rows, err = m.db.Query("SELECT id, `key`, `value` FROM contains WHERE `key` LIKE CONCAT('%', ?, '%')", query)
-	case "regex":
-		rows, err = m.db.Query("SELECT id, `key`, `value` FROM regex") // Regex matching in code
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		var entries []Entry
-		for rows.Next() {
-			var entry Entry
-			if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
-				return nil, err
-			}
-			matched, _ := regexp.MatchString(query, entry.Key)
-			if matched {
-				entry.MatchType = MatchRegex
-				entries = append(entries, entry)
-			}
-		}
-		return entries, nil
-	default:
-		return nil, fmt.Errorf("invalid table name: %s", table)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []Entry
-	for rows.Next() {
-		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
-			return nil, err
-		}
-		switch table {
-		case "exact":
-			entry.MatchType = MatchExact
-		case "contains":
-			entry.MatchType = MatchContains
-		case "regex":
-			entry.MatchType = MatchRegex
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
+	return m.commonOps.QueryWithCondition(query, "regex", nil)
 }
 
 func (m *MySQLDB) AddEntryExact(key string, value string) error {
-	return m.addEntry(key, value, "exact")
+	return m.commonOps.AddEntry(key, value, "exact")
 }
 
 func (m *MySQLDB) AddEntryContains(key string, value string) error {
-	return m.addEntry(key, value, "contains")
+	return m.commonOps.AddEntry(key, value, "contains")
 }
 
 func (m *MySQLDB) AddEntryRegex(key string, value string) error {
-	return m.addEntry(key, value, "regex")
-}
-
-func (m *MySQLDB) addEntry(key string, value string, table string) error {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "INSERT INTO exact (`key`, `value`) VALUES (?, ?)"
-	case "contains":
-		query = "INSERT INTO contains (`key`, `value`) VALUES (?, ?)"
-	case "regex":
-		query = "INSERT INTO regex (`key`, `value`) VALUES (?, ?)"
-	case "prefix":
-		query = "INSERT INTO prefix (`key`, `value`) VALUES (?, ?)"
-	case "suffix":
-		query = "INSERT INTO suffix (`key`, `value`) VALUES (?, ?)"
-	}
-	_, err := m.db.Exec(query, key, value)
-	return err
+	return m.commonOps.AddEntry(key, value, "regex")
 }
 
 func (m *MySQLDB) UpdateEntryExact(key string, value string) error {
-	return m.updateEntry(key, value, "exact")
+	return m.commonOps.UpdateEntry(key, value, "exact")
 }
 
 func (m *MySQLDB) UpdateEntryContains(key string, value string) error {
-	return m.updateEntry(key, value, "contains")
+	return m.commonOps.UpdateEntry(key, value, "contains")
 }
 
 func (m *MySQLDB) UpdateEntryRegex(key string, value string) error {
-	return m.updateEntry(key, value, "regex")
-}
-
-func (m *MySQLDB) updateEntry(key string, value string, table string) error {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "UPDATE exact SET `value` = ? WHERE `key` = ?"
-	case "contains":
-		query = "UPDATE contains SET `value` = ? WHERE `key` = ?"
-	case "regex":
-		query = "UPDATE regex SET `value` = ? WHERE `key` = ?"
-	case "prefix":
-		query = "UPDATE prefix SET `value` = ? WHERE `key` = ?"
-	case "suffix":
-		query = "UPDATE suffix SET `value` = ? WHERE `key` = ?"
-	}
-	_, err := m.db.Exec(query, value, key)
-	return err
+	return m.commonOps.UpdateEntry(key, value, "regex")
 }
 
 func (m *MySQLDB) DeleteEntryExact(key string) error {
-	return m.deleteEntry(key, "exact")
+	return m.commonOps.DeleteEntry(key, "exact")
 }
 
 func (m *MySQLDB) DeleteEntryContains(key string) error {
-	return m.deleteEntry(key, "contains")
+	return m.commonOps.DeleteEntry(key, "contains")
 }
 
 func (m *MySQLDB) DeleteEntryRegex(key string) error {
-	return m.deleteEntry(key, "regex")
-}
-
-func (m *MySQLDB) deleteEntry(key string, table string) error {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "DELETE FROM exact WHERE `key` = ?"
-	case "contains":
-		query = "DELETE FROM contains WHERE `key` = ?"
-	case "regex":
-		query = "DELETE FROM regex WHERE `key` = ?"
-	case "prefix":
-		query = "DELETE FROM prefix WHERE `key` = ?"
-	case "suffix":
-		query = "DELETE FROM suffix WHERE `key` = ?"
-	}
-	_, err := m.db.Exec(query, key)
-	return err
+	return m.commonOps.DeleteEntry(key, "regex")
 }
 
 func (m *MySQLDB) ListEntriesExact() ([]Entry, error) {
-	return m.listEntries("exact")
+	return m.commonOps.ListEntries("exact", nil)
 }
 
 func (m *MySQLDB) ListEntriesContains() ([]Entry, error) {
-	return m.listEntries("contains")
+	return m.commonOps.ListEntries("contains", nil)
 }
 
 func (m *MySQLDB) ListEntriesRegex() ([]Entry, error) {
-	return m.listEntries("regex")
-}
-
-func (m *MySQLDB) listEntries(table string) ([]Entry, error) {
-	// 使用白名单验证表名以防止SQL注入
-	validTables := map[string]bool{
-		"exact":    true,
-		"contains": true,
-		"regex":    true,
-		"prefix":   true,
-		"suffix":   true,
-	}
-	if !validTables[table] {
-		return nil, fmt.Errorf("invalid table name: %s", table)
-	}
-
-	var query string
-	switch table {
-	case "exact":
-		query = "SELECT id, `key`, `value` FROM exact"
-	case "contains":
-		query = "SELECT id, `key`, `value` FROM contains"
-	case "regex":
-		query = "SELECT id, `key`, `value` FROM regex"
-	case "prefix":
-		query = "SELECT id, `key`, `value` FROM prefix"
-	case "suffix":
-		query = "SELECT id, `key`, `value` FROM suffix"
-	}
-	rows, err := m.db.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var entries []Entry
-	for rows.Next() {
-		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
-			return nil, err
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
+	return m.commonOps.ListEntries("regex", nil)
 }
 
 func (m *MySQLDB) ListSpecificEntries(matchTypes ...MatchType) ([]Entry, error) {
@@ -593,6 +315,9 @@ func (m *MySQLDB) Reload() error {
 	if err != nil {
 		return err
 	}
+	
+	// 重新初始化common operations
+	m.commonOps = NewCommonSQLOperations(m.db)
 	return nil
 }
 
