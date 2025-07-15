@@ -457,5 +457,4 @@ go vet ./...
 
 ## 开发者
 
-<!--GAMFC_DELIMITER-->
-<!--GAMFC_DELIMITER_END-->
+<!--GAMFC_DELIMITER--><a href="https://github.com/HsukqiLee" title="Hsukqi Lee"><img src="https://avatars.githubusercontent.com/u/79034142?v=4" width="50;" alt="Hsukqi Lee"/></a><!--GAMFC_DELIMITER_END-->
