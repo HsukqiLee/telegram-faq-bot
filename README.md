@@ -75,95 +75,255 @@ go build -o TGFaqBot.exe .
 
 ## 🔧 配置说明
 
-### 数据库配置
-支持四种数据库类型：
+### 配置文件结构
+复制 `config.example.json` 为 `config.json` 并根据需要修改配置项。
 
-#### JSON文件（默认）
+### Telegram Bot 配置
+```json
+"telegram": {
+  "token": "your_bot_token_here",        // 从 @BotFather 获取的 Bot Token
+  "mode": "getupdates",                  // 消息获取模式: getupdates 或 webhook
+  "webhook_url": "",                     // webhook 模式下的回调URL
+  "webhook_port": 8443,                  // webhook 监听端口
+  "debug": true,                         // 是否显示调试信息
+  "introduction": "..."                  // Bot 介绍信息
+}
+```
+
+**消息获取模式说明：**
+- `getupdates`: 主动拉取消息（推荐，适合大多数场景）
+- `webhook`: 被动接收消息（需要公网域名和HTTPS）
+
+### AI 聊天配置
+```json
+"chat": {
+  "prefix": "",                          // 消息前缀，为空时所有消息触发AI
+  "system_prompt": "...",                // 全局系统提示词
+  "history_length": 5,                   // 对话历史保留条数 (0-50)
+  "history_timeout_minutes": 30,         // 对话历史超时时间(分钟)
+  "timeout": 60                          // 全局AI请求超时时间(秒)
+}
+```
+
+### AI 提供商配置
+**重要：建议只启用一个AI提供商避免冲突**
+
+#### OpenAI 配置
+```json
+"openai": {
+  "enabled": true,                       // 是否启用
+  "api_key": "your_openai_api_key",      // API密钥
+  "api_url": "https://api.openai.com/v1", // API端点
+  "default_model": "gpt-3.5-turbo",     // 默认模型
+  "disabled_models": [],                 // 禁用的模型列表
+  "system_prompt": "",                   // 覆盖全局提示词
+  "timeout": 0                           // 覆盖全局超时设置
+}
+```
+
+**可用模型：** `gpt-3.5-turbo`, `gpt-4`, `gpt-4-turbo`, `gpt-4o`, `gpt-4o-mini`
+
+#### Anthropic Claude 配置
+```json
+"anthropic": {
+  "enabled": false,
+  "api_key": "your_anthropic_api_key",
+  "api_url": "https://api.anthropic.com",
+  "default_model": "claude-3-sonnet-20240229",
+  "disabled_models": [],
+  "system_prompt": "",
+  "timeout": 0
+}
+```
+
+**可用模型：** `claude-3-haiku-20240307`, `claude-3-sonnet-20240229`, `claude-3-opus-20240229`, `claude-3-5-sonnet-20241022`
+
+#### Google Gemini 配置
+```json
+"gemini": {
+  "enabled": false,
+  "api_key": "your_gemini_api_key",
+  "api_url": "https://generativelanguage.googleapis.com/v1beta",
+  "default_model": "gemini-pro",
+  "disabled_models": [],
+  "system_prompt": "",
+  "timeout": 0
+}
+```
+
+**可用模型：** `gemini-pro`, `gemini-pro-vision`, `gemini-1.5-pro`, `gemini-1.5-flash`
+
+#### Ollama 配置（本地部署）
+```json
+"ollama": {
+  "enabled": false,
+  "api_url": "http://localhost:11434",
+  "default_model": "llama2",
+  "disabled_models": [],
+  "system_prompt": "",
+  "timeout": 0
+}
+```
+
+**设置说明：**
+1. 需要本地安装 Ollama: `https://ollama.ai/`
+2. 下载模型: `ollama pull llama2`
+3. 可用模型取决于已下载的模型
+
+### 数据库配置
+**重要：只能选择一种数据库类型**
+
+```json
+"database": {
+  "type": "json"                         // 数据库类型: json, sqlite, mysql, postgresql
+}
+```
+
+**类型选择建议：**
+- **开发环境**: `json` 或 `sqlite`
+- **生产环境**: `mysql` 或 `postgresql`
+
+#### JSON 文件数据库（默认）
 ```json
 "database": {
   "type": "json",
   "json": {
-    "filename": "database.json"
+    "filename": "data.json"              // 数据文件路径
   }
 }
 ```
+**优点**: 轻量级，无需额外安装  
+**缺点**: 不支持并发，适合小规模使用
 
-#### SQLite
+#### SQLite 数据库
 ```json
 "database": {
   "type": "sqlite",
   "sqlite": {
-    "filename": "database.db"
+    "filename": "bot_data.db"            // 数据库文件路径
   }
 }
 ```
+**优点**: 轻量级，支持SQL，文件存储  
+**缺点**: 并发能力有限
 
-#### MySQL
+#### MySQL 数据库
 ```json
 "database": {
   "type": "mysql",
   "mysql": {
-    "host": "localhost",
-    "port": 3306,
-    "user": "username",
-    "password": "password",
-    "database": "botdb",
-    "sslmode": "false"
+    "host": "localhost",                 // 数据库主机
+    "port": 3306,                        // 端口号
+    "user": "bot_user",                  // 用户名
+    "password": "your_mysql_password",   // 密码
+    "database": "telegram_bot",          // 数据库名
+    "sslmode": "false"                   // SSL模式
   }
 }
 ```
 
-**MySQL SSL模式说明**：
+**MySQL SSL模式选项：**
 - `false`: 禁用SSL（默认）
 - `true`: 启用SSL，但不验证证书
 - `skip-verify`: 启用SSL，跳过证书验证
 - `preferred`: 优先使用SSL，失败时回退到非SSL
 - `disable`: 强制禁用SSL
 
-#### PostgreSQL
+#### PostgreSQL 数据库
 ```json
 "database": {
   "type": "postgresql",
   "postgresql": {
-    "host": "localhost",
-    "port": 5432,
-    "user": "username",
-    "password": "password",
-    "database": "botdb",
-    "sslmode": "disable"
+    "host": "localhost",                 // 数据库主机
+    "port": 5432,                        // 端口号
+    "user": "bot_user",                  // 用户名
+    "password": "your_postgresql_password", // 密码
+    "database": "telegram_bot",          // 数据库名
+    "sslmode": "disable"                 // SSL模式
   }
 }
 ```
 
-### AI提供商配置
+**PostgreSQL SSL模式选项：**
+- `disable`: 禁用SSL
+- `require`: 要求SSL连接
+- `verify-ca`: 验证CA证书
+- `verify-full`: 完全验证证书
 
-#### OpenAI
+### Redis 缓存配置（可选）
 ```json
-"openai": {
-  "enabled": true,
-  "api_key": "sk-...",
-  "api_url": "https://api.openai.com/v1",
-  "default_model": "gpt-4o-mini"
+"redis": {
+  "enabled": false,                      // 是否启用Redis缓存
+  "host": "localhost",                   // Redis主机
+  "port": 6379,                          // 端口号
+  "password": "",                        // 密码（无密码时留空）
+  "database": 0,                         // 数据库编号 (0-15)
+  "ttl": 1800,                           // 对话缓存过期时间(秒)
+  "ai_cache_enabled": false,             // 是否启用AI对话缓存
+  "ai_cache_ttl": 3600                   // AI对话缓存过期时间(秒)
 }
 ```
 
-#### Anthropic Claude
+**Redis缓存功能：**
+- **对话缓存**: 存储用户对话历史，提高响应速度
+- **AI缓存**: 缓存AI回复，相同问题直接返回缓存结果
+
+**AI缓存说明：**
+- 按照 `渠道->模型->问题` 的组合进行缓存
+- 命中缓存时直接回复缓存内容，并显示"💾 缓存回复"
+- 缓存回复不计入对话轮数，不显示tokens统计
+- 缓存回复不会被加入对话上下文
+
+**建议：** 生产环境启用Redis提高性能
+
+### 管理员权限配置
 ```json
-"anthropic": {
-  "enabled": true,
-  "api_key": "sk-ant-...",
-  "api_url": "https://api.anthropic.com",
-  "default_model": "claude-3-haiku-20240307"
+"admin": {
+  "super_admin_ids": [123456789],        // 超级管理员ID列表
+  "admin_ids": [],                       // 普通管理员ID列表
+  "allowed_group_ids": []                // 允许使用的群组ID列表
 }
 ```
 
-#### Google Gemini
+**获取用户ID：** 发送 `/start` 给bot查看自己的用户ID  
+**群组白名单：** 空数组表示允许所有群组
+
+### 环境变量配置（推荐）
+为了提高安全性，建议使用环境变量存储敏感信息：
+
+```bash
+# Windows PowerShell
+$env:TELEGRAM_BOT_TOKEN="your_bot_token"
+$env:OPENAI_API_KEY="your_openai_key"
+$env:ANTHROPIC_API_KEY="your_anthropic_key"
+$env:GEMINI_API_KEY="your_gemini_key"
+
+# Linux/macOS
+export TELEGRAM_BOT_TOKEN="your_bot_token"
+export OPENAI_API_KEY="your_openai_key"
+export ANTHROPIC_API_KEY="your_anthropic_key"
+export GEMINI_API_KEY="your_gemini_key"
+```
+
+**优先级：** 环境变量 > 配置文件
+
+### 部署模式建议
+
+#### 开发环境
 ```json
-"gemini": {
-  "enabled": true,
-  "api_key": "AIza...",
-  "api_url": "https://generativelanguage.googleapis.com/v1beta",
-  "default_model": "gemini-pro"
+{
+  "telegram": { "mode": "getupdates", "debug": true },
+  "database": { "type": "json" },
+  "redis": { "enabled": false }
+}
+```
+
+#### 生产环境
+```json
+{
+  "telegram": { "mode": "webhook", "debug": false },
+  "database": { "type": "mysql" },
+  "redis": { "enabled": true }
 }
 ```
 

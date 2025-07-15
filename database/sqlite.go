@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
+	"TGFaqBot/config"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -46,24 +48,17 @@ func (s *SQLiteDB) Query(query string) ([]Entry, error) {
 	return allEntries, nil
 }
 
-func (s *SQLiteDB) QueryByID(id int, matchType int) (*Entry, error) {
-	var tableName string
-	switch matchType {
-	case 1:
-		tableName = "exact"
-	case 2:
-		tableName = "contains"
-	case 3:
-		tableName = "regex"
-	default:
-		return nil, fmt.Errorf("invalid match type: %d", matchType)
+func (s *SQLiteDB) QueryByID(id int, matchType MatchType) (*Entry, error) {
+	tableName := matchType.GetTableName()
+	if tableName == "" {
+		return nil, fmt.Errorf("invalid match type: %s", matchType)
 	}
 
-	query := fmt.Sprintf("SELECT id, key, value FROM %s WHERE id = ?", tableName)
+	query := fmt.Sprintf("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM %s WHERE id = ?", tableName)
 	row := s.db.QueryRow(query, id)
 
 	var entry Entry
-	err := row.Scan(&entry.ID, &entry.Key, &entry.Value)
+	err := row.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("entry with ID %d not found in %s", id, tableName)
@@ -75,31 +70,31 @@ func (s *SQLiteDB) QueryByID(id int, matchType int) (*Entry, error) {
 	return &entry, nil
 }
 
-func (s *SQLiteDB) AddEntry(key string, matchType int, value string) error {
+func (s *SQLiteDB) AddEntry(key string, matchType MatchType, value string) error {
 	switch matchType {
-	case 1:
+	case MatchExact:
 		return s.AddEntryExact(key, value)
-	case 2:
+	case MatchContains:
 		return s.AddEntryContains(key, value)
-	case 3:
+	case MatchRegex:
 		return s.AddEntryRegex(key, value)
 	default:
-		return fmt.Errorf("invalid match type: %d", matchType)
+		return fmt.Errorf("invalid match type: %s", matchType)
 	}
 }
 
-func (s *SQLiteDB) UpdateEntry(key string, oldType int, newType int, value string) error {
+func (s *SQLiteDB) UpdateEntry(key string, oldType MatchType, newType MatchType, value string) error {
 	if oldType == newType {
 		// Same type, use existing UpdateEntryXXX functions
 		switch oldType {
-		case 1:
+		case MatchExact:
 			return s.UpdateEntryExact(key, value)
-		case 2:
+		case MatchContains:
 			return s.UpdateEntryContains(key, value)
-		case 3:
+		case MatchRegex:
 			return s.UpdateEntryRegex(key, value)
 		default:
-			return fmt.Errorf("invalid match type: %d", oldType)
+			return fmt.Errorf("invalid match type: %s", oldType)
 		}
 	} else {
 		// Different types, delete from old and add to new
@@ -110,16 +105,16 @@ func (s *SQLiteDB) UpdateEntry(key string, oldType int, newType int, value strin
 	}
 }
 
-func (s *SQLiteDB) DeleteEntry(key string, matchType int) error {
+func (s *SQLiteDB) DeleteEntry(key string, matchType MatchType) error {
 	switch matchType {
-	case 1:
+	case MatchExact:
 		return s.DeleteEntryExact(key)
-	case 2:
+	case MatchContains:
 		return s.DeleteEntryContains(key)
-	case 3:
+	case MatchRegex:
 		return s.DeleteEntryRegex(key)
 	default:
-		return fmt.Errorf("invalid match type: %d", matchType)
+		return fmt.Errorf("invalid match type: %s", matchType)
 	}
 }
 
@@ -137,36 +132,31 @@ func (s *SQLiteDB) ListEntries(table string) ([]Entry, error) {
 }
 
 func (s *SQLiteDB) ListAllEntries() ([]Entry, error) {
+	// 使用UNION ALL查询一次性获取所有条目，比分别查询三个表更高效
+	query := `
+		SELECT id, key, value, content_type, telegraph_url, telegraph_path, 1 as match_type FROM exact
+		UNION ALL
+		SELECT id, key, value, content_type, telegraph_url, telegraph_path, 2 as match_type FROM contains
+		UNION ALL
+		SELECT id, key, value, content_type, telegraph_url, telegraph_path, 3 as match_type FROM regex
+		ORDER BY match_type, id`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
 	var allEntries []Entry
+	for rows.Next() {
+		var entry Entry
+		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath, &entry.MatchType); err != nil {
+			return nil, err
+		}
+		allEntries = append(allEntries, entry)
+	}
 
-	exactEntries, err := s.ListEntriesExact()
-	if err != nil {
-		return nil, err
-	}
-	for i := range exactEntries {
-		exactEntries[i].MatchType = 1
-	}
-	allEntries = append(allEntries, exactEntries...)
-
-	containsEntries, err := s.ListEntriesContains()
-	if err != nil {
-		return nil, err
-	}
-	for i := range containsEntries {
-		containsEntries[i].MatchType = 2
-	}
-	allEntries = append(allEntries, containsEntries...)
-
-	regexEntries, err := s.ListEntriesRegex()
-	if err != nil {
-		return nil, err
-	}
-	for i := range regexEntries {
-		regexEntries[i].MatchType = 3
-	}
-	allEntries = append(allEntries, regexEntries...)
-
-	return allEntries, nil
+	return allEntries, rows.Err()
 }
 
 func (s *SQLiteDB) QueryExact(query string) ([]Entry, error) {
@@ -187,11 +177,11 @@ func (s *SQLiteDB) query(query string, table string) ([]Entry, error) {
 
 	switch table {
 	case "exact":
-		rows, err = s.db.Query("SELECT id, key, value FROM exact WHERE `key` = ?", query)
+		rows, err = s.db.Query("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact WHERE `key` = ?", query)
 	case "contains":
-		rows, err = s.db.Query("SELECT id, key, value FROM contains WHERE `key` LIKE '%' || ? || '%'", query)
+		rows, err = s.db.Query("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains WHERE `key` LIKE '%' || ? || '%'", query)
 	case "regex":
-		rows, err = s.db.Query("SELECT id, key, value FROM regex") // Regex matching in code
+		rows, err = s.db.Query("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex") // Regex matching in code
 		if err != nil {
 			return nil, err
 		}
@@ -200,12 +190,12 @@ func (s *SQLiteDB) query(query string, table string) ([]Entry, error) {
 		var entries []Entry
 		for rows.Next() {
 			var entry Entry
-			if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
+			if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath); err != nil {
 				return nil, err
 			}
 			matched, _ := regexp.MatchString(query, entry.Key)
 			if matched {
-				entry.MatchType = 3
+				entry.MatchType = MatchRegex
 				entries = append(entries, entry)
 			}
 		}
@@ -222,16 +212,16 @@ func (s *SQLiteDB) query(query string, table string) ([]Entry, error) {
 	var entries []Entry
 	for rows.Next() {
 		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath); err != nil {
 			return nil, err
 		}
 		switch table {
 		case "exact":
-			entry.MatchType = 1
+			entry.MatchType = MatchExact
 		case "contains":
-			entry.MatchType = 2
+			entry.MatchType = MatchContains
 		case "regex":
-			entry.MatchType = 3
+			entry.MatchType = MatchRegex
 		}
 		entries = append(entries, entry)
 	}
@@ -302,7 +292,7 @@ func (s *SQLiteDB) ListEntriesRegex() ([]Entry, error) {
 }
 
 func (s *SQLiteDB) listEntries(table string) ([]Entry, error) {
-	rows, err := s.db.Query(fmt.Sprintf("SELECT id, key, value FROM %s", table))
+	rows, err := s.db.Query(fmt.Sprintf("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM %s", table))
 	if err != nil {
 		return nil, err
 	}
@@ -311,23 +301,23 @@ func (s *SQLiteDB) listEntries(table string) ([]Entry, error) {
 	var entries []Entry
 	for rows.Next() {
 		var entry Entry
-		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath); err != nil {
 			return nil, err
 		}
 		switch table {
 		case "exact":
-			entry.MatchType = 1
+			entry.MatchType = MatchExact
 		case "contains":
-			entry.MatchType = 2
+			entry.MatchType = MatchContains
 		case "regex":
-			entry.MatchType = 3
+			entry.MatchType = MatchRegex
 		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
 }
 
-func (s *SQLiteDB) ListSpecificEntries(matchTypes ...int) ([]Entry, error) {
+func (s *SQLiteDB) ListSpecificEntries(matchTypes ...MatchType) ([]Entry, error) {
 	if len(matchTypes) == 0 {
 		// List all entries if no match types are specified
 		return s.ListAllEntries()
@@ -339,14 +329,14 @@ func (s *SQLiteDB) ListSpecificEntries(matchTypes ...int) ([]Entry, error) {
 		var err error
 
 		switch matchType {
-		case 1:
+		case MatchExact:
 			entries, err = s.ListEntriesExact()
-		case 2:
+		case MatchContains:
 			entries, err = s.ListEntriesContains()
-		case 3:
+		case MatchRegex:
 			entries, err = s.ListEntriesRegex()
 		default:
-			return nil, fmt.Errorf("invalid match type: %d", matchType)
+			return nil, fmt.Errorf("invalid match type: %s", matchType)
 		}
 
 		if err != nil {
@@ -392,17 +382,58 @@ func (s *SQLiteDB) Reload() error {
         CREATE TABLE IF NOT EXISTS exact (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             key TEXT NOT NULL,
-            value TEXT NOT NULL
+            value TEXT NOT NULL,
+            content_type TEXT DEFAULT 'text',
+            telegraph_url TEXT DEFAULT '',
+            telegraph_path TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS contains (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             key TEXT NOT NULL,
-            value TEXT NOT NULL
+            value TEXT NOT NULL,
+            content_type TEXT DEFAULT 'text',
+            telegraph_url TEXT DEFAULT '',
+            telegraph_path TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS regex (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             key TEXT NOT NULL,
-            value TEXT NOT NULL
+            value TEXT NOT NULL,
+            content_type TEXT DEFAULT 'text',
+            telegraph_url TEXT DEFAULT '',
+            telegraph_path TEXT DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS prefix (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            content_type TEXT DEFAULT 'text',
+            telegraph_url TEXT DEFAULT '',
+            telegraph_path TEXT DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS suffix (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            content_type TEXT DEFAULT 'text',
+            telegraph_url TEXT DEFAULT '',
+            telegraph_path TEXT DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS ai_models (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            UNIQUE(provider, model_id)
+        );
+        CREATE TABLE IF NOT EXISTS model_cache (
+            id INTEGER PRIMARY KEY,
+            model_id TEXT NOT NULL,
+            model_name TEXT,
+            provider TEXT NOT NULL,
+            cache_time TEXT NOT NULL
         );
     `)
 	if err != nil {
@@ -415,24 +446,182 @@ func (s *SQLiteDB) Close() error {
 	return s.db.Close()
 }
 
-// 模型管理功能占位符实现（可在未来完善）
+// 模型管理功能实现
 func (s *SQLiteDB) SaveModels(provider string, models []ModelInfo) error {
-	// TODO: 实现SQLite的模型存储功能
-	// 暂时返回成功，模型数据可以缓存在内存中
-	return nil
+	// 开始事务
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// 先删除该提供商的旧模型
+	_, err = tx.Exec("DELETE FROM ai_models WHERE provider = ?", provider)
+	if err != nil {
+		return fmt.Errorf("failed to delete old models: %v", err)
+	}
+
+	// 插入新模型
+	stmt, err := tx.Prepare("INSERT INTO ai_models (provider, model_id, model_name, description, updated_at) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %v", err)
+	}
+	defer stmt.Close()
+
+	for _, model := range models {
+		_, err = stmt.Exec(provider, model.ID, model.Name, model.Description, model.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to insert model %s: %v", model.ID, err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *SQLiteDB) GetModels(provider string) ([]ModelInfo, error) {
-	// TODO: 实现SQLite的模型获取功能
-	return []ModelInfo{}, nil
+	rows, err := s.db.Query("SELECT model_id, model_name, provider, description, updated_at FROM ai_models WHERE provider = ? ORDER BY model_id", provider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query models: %v", err)
+	}
+	defer rows.Close()
+
+	var models []ModelInfo
+	for rows.Next() {
+		var model ModelInfo
+		err := rows.Scan(&model.ID, &model.Name, &model.Provider, &model.Description, &model.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan model: %v", err)
+		}
+		models = append(models, model)
+	}
+
+	return models, rows.Err()
 }
 
 func (s *SQLiteDB) GetAllModels() (map[string][]ModelInfo, error) {
-	// TODO: 实现SQLite的所有模型获取功能
-	return make(map[string][]ModelInfo), nil
+	rows, err := s.db.Query("SELECT provider, model_id, model_name, description, updated_at FROM ai_models ORDER BY provider, model_id")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all models: %v", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]ModelInfo)
+	for rows.Next() {
+		var model ModelInfo
+		err := rows.Scan(&model.Provider, &model.ID, &model.Name, &model.Description, &model.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan model: %v", err)
+		}
+		result[model.Provider] = append(result[model.Provider], model)
+	}
+
+	return result, rows.Err()
 }
 
 func (s *SQLiteDB) DeleteModels(provider string) error {
-	// TODO: 实现SQLite的模型删除功能
+	_, err := s.db.Exec("DELETE FROM ai_models WHERE provider = ?", provider)
+	if err != nil {
+		return fmt.Errorf("failed to delete models for provider %s: %v", provider, err)
+	}
 	return nil
+}
+
+// Telegraph 内容管理方法
+func (s *SQLiteDB) AddTelegraphEntry(key string, matchType MatchType, value string, contentType string, telegraphURL string, telegraphPath string) error {
+	tableName := matchType.GetTableName()
+	if tableName == "" {
+		return fmt.Errorf("invalid match type: %s", matchType)
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s (`key`, `value`, `content_type`, `telegraph_url`, `telegraph_path`) VALUES (?, ?, ?, ?, ?)", tableName)
+	_, err := s.db.Exec(query, key, value, contentType, telegraphURL, telegraphPath)
+	return err
+}
+
+// UpdateTelegraphEntry 更新 Telegraph 条目
+func (s *SQLiteDB) UpdateTelegraphEntry(key string, matchType MatchType, value string, contentType string, telegraphURL string, telegraphPath string) error {
+	tableName := matchType.GetTableName()
+	if tableName == "" {
+		return fmt.Errorf("invalid match type: %s", matchType)
+	}
+
+	query := fmt.Sprintf("UPDATE %s SET `value` = ?, `content_type` = ?, `telegraph_url` = ?, `telegraph_path` = ? WHERE `key` = ?", tableName)
+	_, err := s.db.Exec(query, value, contentType, telegraphURL, telegraphPath, key)
+	return err
+}
+
+// GetTelegraphContent 获取 Telegraph 内容
+func (s *SQLiteDB) GetTelegraphContent(key string, matchType MatchType) (*Entry, error) {
+	tableName := matchType.GetTableName()
+	if tableName == "" {
+		return nil, fmt.Errorf("invalid match type: %s", matchType)
+	}
+
+	query := fmt.Sprintf("SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM %s WHERE `key` = ?", tableName)
+	row := s.db.QueryRow(query, key)
+
+	var entry Entry
+	err := row.Scan(&entry.ID, &entry.Key, &entry.Value, &entry.ContentType, &entry.TelegraphURL, &entry.TelegraphPath)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("entry with key %s not found in %s", key, tableName)
+		}
+		return nil, err
+	}
+
+	entry.MatchType = matchType
+	return &entry, nil
+}
+
+// 模型缓存接口实现
+func (s *SQLiteDB) SetModelCache(models []config.Model, updatedAt string) error {
+	// 清空现有缓存
+	_, err := s.db.Exec("DELETE FROM model_cache")
+	if err != nil {
+		return err
+	}
+
+	// 插入新的缓存数据
+	for i, model := range models {
+		_, err = s.db.Exec(`
+			INSERT INTO model_cache (id, model_id, model_name, provider, cache_time) 
+			VALUES (?, ?, ?, ?, ?)`,
+			i+1, model.ID, model.Name, model.Provider, updatedAt)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SQLiteDB) GetModelCache() ([]config.Model, string, error) {
+	rows, err := s.db.Query("SELECT model_id, model_name, provider, cache_time FROM model_cache ORDER BY id")
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var models []config.Model
+	var cacheTime string
+
+	for rows.Next() {
+		var model config.Model
+		var modelCacheTime string
+		err := rows.Scan(&model.ID, &model.Name, &model.Provider, &modelCacheTime)
+		if err != nil {
+			return nil, "", err
+		}
+		models = append(models, model)
+		if cacheTime == "" {
+			cacheTime = modelCacheTime
+		}
+	}
+
+	return models, cacheTime, rows.Err()
+}
+
+func (s *SQLiteDB) ClearModelCache() error {
+	_, err := s.db.Exec("DELETE FROM model_cache")
+	return err
 }

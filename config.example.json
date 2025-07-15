@@ -1,0 +1,100 @@
+{
+  "telegram": {
+    "token": "your_bot_token_here",
+    "mode": "getupdates",
+    "webhook_url": "",
+    "webhook_port": 8443,
+    "debug": true,
+    "introduction": "👋 欢迎使用Telegram FAQ Bot！\n\n💬 直接发送消息与AI对话\n📝 输入关键词可查询FAQ\n⚙️ 使用 /commands 查看所有可用命令\n🤖 使用 /models 选择AI模型\n🔄 使用 /retry 重新生成回复"
+  },
+  
+  "chat": {
+    "prefix": "",
+    "system_prompt": "你是一个有用的AI助手。请用中文回答问题，回答要准确、简洁、有帮助。",
+    "history_length": 5,
+    "history_timeout_minutes": 30,
+    "timeout": 60,
+    
+    "openai": {
+      "enabled": true,
+      "api_key": "your_openai_api_key",
+      "api_url": "https://api.openai.com/v1",
+      "default_model": "gpt-3.5-turbo",
+      "disabled_models": [],
+      "system_prompt": "",
+      "timeout": 0
+    },
+    
+    "anthropic": {
+      "enabled": false,
+      "api_key": "your_anthropic_api_key",
+      "api_url": "https://api.anthropic.com",
+      "default_model": "claude-3-sonnet-20240229",
+      "disabled_models": [],
+      "system_prompt": "",
+      "timeout": 0
+    },
+    
+    "gemini": {
+      "enabled": false,
+      "api_key": "your_gemini_api_key",
+      "api_url": "https://generativelanguage.googleapis.com/v1beta",
+      "default_model": "gemini-pro",
+      "disabled_models": [],
+      "system_prompt": "",
+      "timeout": 0
+    },
+    
+    "ollama": {
+      "enabled": false,
+      "api_url": "http://localhost:11434",
+      "default_model": "llama2",
+      "disabled_models": [],
+      "system_prompt": "",
+      "timeout": 0
+    }
+  },
+  
+  "database": {
+    "type": "json",
+    "json": {
+      "filename": "data.json"
+    },
+    "sqlite": {
+      "filename": "bot_data.db"
+    },
+    "mysql": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "bot_user",
+      "password": "your_mysql_password",
+      "database": "telegram_bot",
+      "sslmode": "false"
+    },
+    "postgresql": {
+      "host": "localhost",
+      "port": 5432,
+      "user": "bot_user", 
+      "password": "your_postgresql_password",
+      "database": "telegram_bot",
+      "sslmode": "disable"
+    }
+  },
+  
+  "redis": {
+    "enabled": false,
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "database": 0,
+    "ttl": 1800,
+    "ai_cache_enabled": false,
+    "ai_cache_ttl": 3600
+  },
+  
+  "admin": {
+    "super_admin_ids": [123456789],
+    "admin_ids": [],
+    "allowed_group_ids": []
+  }
+}

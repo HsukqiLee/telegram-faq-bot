@@ -107,7 +107,7 @@ func (p *PostgreSQLDB) Query(query string) ([]Entry, error) {
 	return allEntries, nil
 }
 
-func (p *PostgreSQLDB) QueryByID(id int, matchType int) (*Entry, error) {
+func (p *PostgreSQLDB) QueryByID(id int, matchType MatchType) (*Entry, error) {
 	query := `SELECT id, key_text, value_text, match_type FROM faq_entries WHERE id = $1 AND match_type = $2`
 	row := p.db.QueryRow(query, id, matchType)
 
@@ -181,19 +181,19 @@ func (p *PostgreSQLDB) queryWithSQL(sqlQuery string, args ...interface{}) ([]Ent
 }
 
 // FAQ管理方法
-func (p *PostgreSQLDB) AddEntry(key string, matchType int, value string) error {
+func (p *PostgreSQLDB) AddEntry(key string, matchType MatchType, value string) error {
 	query := `INSERT INTO faq_entries (key_text, value_text, match_type) VALUES ($1, $2, $3)`
 	_, err := p.db.Exec(query, key, value, matchType)
 	return err
 }
 
-func (p *PostgreSQLDB) UpdateEntry(key string, oldType int, newType int, value string) error {
+func (p *PostgreSQLDB) UpdateEntry(key string, oldType MatchType, newType MatchType, value string) error {
 	query := `UPDATE faq_entries SET value_text = $1, match_type = $2, updated_at = CURRENT_TIMESTAMP WHERE key_text = $3 AND match_type = $4`
 	_, err := p.db.Exec(query, value, newType, key, oldType)
 	return err
 }
 
-func (p *PostgreSQLDB) DeleteEntry(key string, matchType int) error {
+func (p *PostgreSQLDB) DeleteEntry(key string, matchType MatchType) error {
 	query := `DELETE FROM faq_entries WHERE key_text = $1 AND match_type = $2`
 	_, err := p.db.Exec(query, key, matchType)
 	return err
@@ -210,7 +210,7 @@ func (p *PostgreSQLDB) ListEntries(table string) ([]Entry, error) {
 	return p.ListAllEntries()
 }
 
-func (p *PostgreSQLDB) ListSpecificEntries(matchTypes ...int) ([]Entry, error) {
+func (p *PostgreSQLDB) ListSpecificEntries(matchTypes ...MatchType) ([]Entry, error) {
 	if len(matchTypes) == 0 {
 		return p.ListAllEntries()
 	}
@@ -219,7 +219,7 @@ func (p *PostgreSQLDB) ListSpecificEntries(matchTypes ...int) ([]Entry, error) {
 	args := make([]interface{}, len(matchTypes))
 	for i, mt := range matchTypes {
 		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = mt
+		args[i] = mt.ToInt()
 	}
 
 	query := fmt.Sprintf(`SELECT id, key_text, value_text, match_type FROM faq_entries WHERE match_type IN (%s) ORDER BY id`,
@@ -235,51 +235,51 @@ func (p *PostgreSQLDB) ListAllEntries() ([]Entry, error) {
 
 // 特定类型的方法
 func (p *PostgreSQLDB) AddEntryExact(key string, value string) error {
-	return p.AddEntry(key, 1, value)
+	return p.AddEntry(key, MatchExact, value)
 }
 
 func (p *PostgreSQLDB) AddEntryContains(key string, value string) error {
-	return p.AddEntry(key, 2, value)
+	return p.AddEntry(key, MatchContains, value)
 }
 
 func (p *PostgreSQLDB) AddEntryRegex(key string, value string) error {
-	return p.AddEntry(key, 3, value)
+	return p.AddEntry(key, MatchRegex, value)
 }
 
 func (p *PostgreSQLDB) UpdateEntryExact(key string, value string) error {
-	return p.UpdateEntry(key, 1, 1, value)
+	return p.UpdateEntry(key, MatchExact, MatchExact, value)
 }
 
 func (p *PostgreSQLDB) UpdateEntryContains(key string, value string) error {
-	return p.UpdateEntry(key, 2, 2, value)
+	return p.UpdateEntry(key, MatchContains, MatchContains, value)
 }
 
 func (p *PostgreSQLDB) UpdateEntryRegex(key string, value string) error {
-	return p.UpdateEntry(key, 3, 3, value)
+	return p.UpdateEntry(key, MatchRegex, MatchRegex, value)
 }
 
 func (p *PostgreSQLDB) DeleteEntryExact(key string) error {
-	return p.DeleteEntry(key, 1)
+	return p.DeleteEntry(key, MatchExact)
 }
 
 func (p *PostgreSQLDB) DeleteEntryContains(key string) error {
-	return p.DeleteEntry(key, 2)
+	return p.DeleteEntry(key, MatchContains)
 }
 
 func (p *PostgreSQLDB) DeleteEntryRegex(key string) error {
-	return p.DeleteEntry(key, 3)
+	return p.DeleteEntry(key, MatchRegex)
 }
 
 func (p *PostgreSQLDB) ListEntriesExact() ([]Entry, error) {
-	return p.ListSpecificEntries(1)
+	return p.ListSpecificEntries(MatchExact)
 }
 
 func (p *PostgreSQLDB) ListEntriesContains() ([]Entry, error) {
-	return p.ListSpecificEntries(2)
+	return p.ListSpecificEntries(MatchContains)
 }
 
 func (p *PostgreSQLDB) ListEntriesRegex() ([]Entry, error) {
-	return p.ListSpecificEntries(3)
+	return p.ListSpecificEntries(MatchRegex)
 }
 
 // 模型管理方法
@@ -372,4 +372,74 @@ func (p *PostgreSQLDB) Close() error {
 		return p.db.Close()
 	}
 	return nil
+}
+
+// Telegraph 内容管理方法
+func (p *PostgreSQLDB) AddTelegraphEntry(key string, matchType MatchType, value string, contentType string, telegraphURL string, telegraphPath string) error {
+	// 暂时简化实现，将 Telegraph URL 存储在 value 字段中
+	return p.AddEntry(key, matchType, telegraphURL)
+}
+
+func (p *PostgreSQLDB) UpdateTelegraphEntry(key string, matchType MatchType, value string, contentType string, telegraphURL string, telegraphPath string) error {
+	// 暂时简化实现
+	return p.UpdateEntry(key, matchType, matchType, telegraphURL)
+}
+
+func (p *PostgreSQLDB) GetTelegraphContent(key string, matchType MatchType) (*Entry, error) {
+	// 暂时使用现有的查询方法
+	return p.QueryByID(1, matchType) // 默认ID为1
+}
+
+// 模型缓存接口实现
+func (p *PostgreSQLDB) SetModelCache(models []config.Model, updatedAt string) error {
+	// 简单实现：使用ai_models表的特殊provider来存储缓存
+	// 清空现有缓存
+	_, err := p.db.Exec("DELETE FROM ai_models WHERE provider = '__cache__'")
+	if err != nil {
+		return err
+	}
+
+	// 插入新的缓存数据
+	for _, model := range models {
+		_, err = p.db.Exec(`
+			INSERT INTO ai_models (provider, model_id, model_name, description, updated_at) 
+			VALUES ('__cache__', $1, $2, $3, $4)`,
+			model.ID, model.Name, model.Provider, updatedAt)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *PostgreSQLDB) GetModelCache() ([]config.Model, string, error) {
+	rows, err := p.db.Query("SELECT model_id, model_name, description, updated_at FROM ai_models WHERE provider = '__cache__'")
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var models []config.Model
+	var cacheTime string
+
+	for rows.Next() {
+		var model config.Model
+		var modelCacheTime string
+		err := rows.Scan(&model.ID, &model.Name, &model.Provider, &modelCacheTime)
+		if err != nil {
+			return nil, "", err
+		}
+		models = append(models, model)
+		if cacheTime == "" {
+			cacheTime = modelCacheTime
+		}
+	}
+
+	return models, cacheTime, rows.Err()
+}
+
+func (p *PostgreSQLDB) ClearModelCache() error {
+	_, err := p.db.Exec("DELETE FROM ai_models WHERE provider = '__cache__'")
+	return err
 }

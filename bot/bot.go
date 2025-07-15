@@ -45,12 +45,13 @@ func NewTelegramBot(conf *config.Config, db database.Database, multichatMgr *mul
 	state := handlers.NewState()
 	streamer := handlers.NewStreamingManager()
 	monitor := NewMonitor(streamer)
+	prefManager := handlers.NewPreferenceManager()
 
 	adminHandler := handlers.NewAdminHandler(db, conf, state)
 	listHandler := handlers.NewListHandler(db, state)
-	commandHandler := handlers.NewCommandHandler(db, conf, adminHandler, listHandler)
-	callbackHandler := handlers.NewCallbackHandler(db, conf, state)
-	messageHandler := handlers.NewMessageHandler(db, conf, state, streamer, multichatMgr)
+	commandHandler := handlers.NewCommandHandler(db, conf, adminHandler, listHandler, multichatMgr, state, streamer, prefManager)
+	callbackHandler := handlers.NewCallbackHandler(db, conf, state, prefManager, multichatMgr)
+	messageHandler := handlers.NewMessageHandler(db, conf, state, streamer, multichatMgr, prefManager)
 
 	return &TelegramBot{
 		bot:             bot,
@@ -103,6 +104,7 @@ func (tb *TelegramBot) registerCommands() error {
 		{Command: "groupinfo", Description: "显示群组信息"},
 		{Command: "models", Description: "显示可用的AI模型"},
 		{Command: "clearchat", Description: "清除当前对话历史"},
+		{Command: "retry", Description: "重新生成上一次AI回复"},
 	}
 
 	if len(tb.conf.Admin.AdminIDs) > 0 || len(tb.conf.Admin.SuperAdminIDs) > 0 {
@@ -110,9 +112,23 @@ func (tb *TelegramBot) registerCommands() error {
 			{Command: "add", Description: "添加条目"},
 			{Command: "update", Description: "更新条目"},
 			{Command: "delete", Description: "删除条目"},
+			{Command: "batchdelete", Description: "批量删除条目"},
 			{Command: "list", Description: "列出所有条目"},
 			{Command: "reload", Description: "重新加载数据库"},
 			{Command: "deleteall", Description: "删除所有条目"},
+			{Command: "tgtext", Description: "创建Telegraph文本页面"},
+			{Command: "tgimage", Description: "创建Telegraph图文页面"},
+		}...)
+	}
+
+	// 添加超级管理员专用指令
+	if len(tb.conf.Admin.SuperAdminIDs) > 0 {
+		commands = append(commands, []tgbotapi.BotCommand{
+			{Command: "addadmin", Description: "添加管理员"},
+			{Command: "deladmin", Description: "删除管理员"},
+			{Command: "addgroup", Description: "添加允许的群组"},
+			{Command: "delgroup", Description: "删除允许的群组"},
+			{Command: "listadmin", Description: "列出所有管理员"},
 		}...)
 	}
 

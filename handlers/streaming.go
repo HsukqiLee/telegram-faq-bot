@@ -1,16 +1,33 @@
 package handlers
 
 import (
+	"fmt"
+	"log"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	tg_markdown "github.com/zavitkov/tg-markdown"
 )
 
 const (
-	EditDebounceInterval = 2 * time.Second // 每2秒最多编辑一次
-	MinEditThreshold     = 50              // 最少积累50个字符才编辑
+	EditDebounceInterval = 1 * time.Second // 每1秒最多编辑一次（更快响应）
+	MinEditThreshold     = 20              // 最少积累20个字符才编辑（更少字符触发）
 )
+
+// ChatStats 聊天统计信息
+type ChatStats struct {
+	InputTokens     int           // 输入tokens
+	OutputTokens    int           // 输出tokens
+	RemainingRounds int           // 剩余对话轮数
+	Duration        time.Duration // 请求耗时
+	Provider        string        // 使用的提供商
+	Model           string        // 使用的模型
+	TTL             time.Duration // 对话历史TTL
+	IsCachedReply   bool          // 是否为缓存回复
+}
 
 // StreamingMessage 流式消息结构
 type StreamingMessage struct {
@@ -50,12 +67,13 @@ func (m *StreamingManager) CreateStream(streamKey string, chatID int64, messageI
 }
 
 // UpdateStream 更新流式消息内容
-func (m *StreamingManager) UpdateStream(bot *tgbotapi.BotAPI, streamKey string, newContent string, isComplete bool) {
+func (m *StreamingManager) UpdateStream(bot *tgbotapi.BotAPI, streamKey string, newContent string, isComplete bool, stats *ChatStats) {
 	m.mutex.RLock()
 	streaming, exists := m.messages[streamKey]
 	m.mutex.RUnlock()
 
 	if !exists {
+		log.Printf("DEBUG: Stream key %s not found", streamKey)
 		return
 	}
 
@@ -65,6 +83,9 @@ func (m *StreamingManager) UpdateStream(bot *tgbotapi.BotAPI, streamKey string, 
 	// 检查是否应该编辑消息（智能防抖）
 	contentDiff := len(newContent) - len(streaming.Content)
 	timeSinceLastEdit := time.Since(streaming.LastEdit)
+
+	log.Printf("DEBUG: UpdateStream - streamKey: %s, contentDiff: %d, timeSinceLastEdit: %v, isComplete: %v",
+		streamKey, contentDiff, timeSinceLastEdit, isComplete)
 
 	// 智能防抖算法
 	shouldEdit := isComplete ||
@@ -76,21 +97,30 @@ func (m *StreamingManager) UpdateStream(bot *tgbotapi.BotAPI, streamKey string, 
 		shouldEdit = true
 	}
 
+	log.Printf("DEBUG: UpdateStream - shouldEdit: %v (contentDiff: %d, threshold: %d, timeSince: %v, interval: %v)",
+		shouldEdit, contentDiff, MinEditThreshold, timeSinceLastEdit, EditDebounceInterval)
+
 	if shouldEdit {
 		displayContent := newContent
 		if !isComplete {
 			displayContent += " ⌨️" // 添加打字指示器
 		}
 
-		editMsg := tgbotapi.NewEditMessageText(streaming.ChatID, streaming.MessageID, displayContent)
+		// Convert standard Markdown to Telegram MarkdownV2
+		convertedContent := tg_markdown.ConvertMarkdownToTelegramMarkdownV2(displayContent)
 
-		// 尝试MarkdownV2格式
+		editMsg := tgbotapi.NewEditMessageText(streaming.ChatID, streaming.MessageID, convertedContent)
+
+		// 首先尝试MarkdownV2格式
 		editMsg.ParseMode = "MarkdownV2"
 		if _, err := bot.Send(editMsg); err != nil {
-			// 如果MarkdownV2格式失败，尝试Markdown格式
+			// 如果MarkdownV2格式失败，尝试标准Markdown
 			editMsg.ParseMode = "Markdown"
+			editMsg.Text = displayContent
 			if _, err2 := bot.Send(editMsg); err2 != nil {
-				// 如果Markdown也失败，使用普通文本
+				// 如果Markdown格式也失败，使用普通文本
+				cleanText := cleanTextForPlain(displayContent)
+				editMsg.Text = cleanText
 				editMsg.ParseMode = ""
 				if _, err3 := bot.Send(editMsg); err3 != nil {
 					// Log error but don't panic
@@ -101,6 +131,77 @@ func (m *StreamingManager) UpdateStream(bot *tgbotapi.BotAPI, streamKey string, 
 		streaming.Content = newContent
 		streaming.LastEdit = time.Now()
 	}
+}
+
+// AppendStats 在流式响应完成后追加统计信息
+func (m *StreamingManager) AppendStats(bot *tgbotapi.BotAPI, streamKey string, stats *ChatStats) {
+	m.mutex.RLock()
+	streaming, exists := m.messages[streamKey]
+	m.mutex.RUnlock()
+
+	if !exists {
+		log.Printf("DEBUG: Stream key %s not found for stats append", streamKey)
+		return
+	}
+
+	streaming.Mutex.Lock()
+	defer streaming.Mutex.Unlock()
+
+	// 如果是缓存回复，不添加统计信息，因为缓存回复已经包含了"缓存回复"标识
+	if stats.IsCachedReply {
+		log.Printf("DEBUG: Skipping stats for cached reply")
+		return
+	}
+
+	// 构建统计信息文本
+	statsText := fmt.Sprintf("\n\n---\n📊 **统计信息**\n• 输入 tokens: %d\n• 输出 tokens: %d\n• 剩余对话轮数: %d\n• 响应耗时: %v",
+		stats.InputTokens, stats.OutputTokens, stats.RemainingRounds, stats.Duration)
+
+	if stats.Model != "" {
+		statsText += fmt.Sprintf("\n• 使用模型: %s", stats.Model)
+	}
+
+	if stats.TTL > 0 {
+		// 计算TTL的小时和分钟
+		hours := int(stats.TTL.Hours())
+		minutes := int(stats.TTL.Minutes()) % 60
+		if hours > 0 {
+			statsText += fmt.Sprintf("\n• 对话超时: %d小时%d分钟后清除", hours, minutes)
+		} else {
+			statsText += fmt.Sprintf("\n• 对话超时: %d分钟后清除", minutes)
+		}
+	}
+
+	// 追加统计信息到现有内容
+	finalContent := streaming.Content + statsText
+
+	// Convert standard Markdown to Telegram MarkdownV2
+	convertedContent := tg_markdown.ConvertMarkdownToTelegramMarkdownV2(finalContent)
+
+	editMsg := tgbotapi.NewEditMessageText(streaming.ChatID, streaming.MessageID, convertedContent)
+
+	// 首先尝试MarkdownV2格式
+	editMsg.ParseMode = "MarkdownV2"
+	if _, err := bot.Send(editMsg); err != nil {
+		// 如果MarkdownV2格式失败，尝试标准Markdown
+		editMsg.ParseMode = "Markdown"
+		editMsg.Text = finalContent
+		if _, err2 := bot.Send(editMsg); err2 != nil {
+			// 如果Markdown格式也失败，使用普通文本
+			cleanText := cleanTextForPlain(finalContent)
+			editMsg.Text = cleanText
+			editMsg.ParseMode = ""
+			if _, err3 := bot.Send(editMsg); err3 != nil {
+				log.Printf("Failed to append stats to message: %v", err3)
+			}
+		}
+	}
+
+	// 更新存储的内容
+	streaming.Content = finalContent
+	streaming.LastEdit = time.Now()
+
+	log.Printf("DEBUG: Appended stats to stream %s", streamKey)
 }
 
 // DeleteStream 删除流式消息
@@ -136,4 +237,28 @@ func (m *StreamingManager) CleanupOldStreams() {
 			delete(m.messages, key)
 		}
 	}
+}
+
+// cleanTextForPlain 清理文本用于纯文本显示
+func cleanTextForPlain(text string) string {
+	// 移除控制字符和特殊字符
+	reg := regexp.MustCompile(`[\x00-\x1F\x7F]`)
+	text = reg.ReplaceAllString(text, "")
+
+	// 确保文本不超过Telegram限制
+	if len(text) > 4096 {
+		text = text[:4093] + "..."
+	}
+
+	return text
+}
+
+// CleanText 清理文本，去除多余空格和换行
+func CleanText(text string) string {
+	// 替换连续的空格和换行符
+	re := regexp.MustCompile(`[\s]+`)
+	cleaned := re.ReplaceAllString(text, " ")
+
+	// 去除首尾空格
+	return strings.TrimSpace(cleaned)
 }

@@ -149,15 +149,27 @@ func (h *HistoryManager) UndoOperation(db database.Database, chatID int64, entry
 	switch entry.Operation {
 	case OpAdd:
 		// 撤销添加 = 删除
-		return db.DeleteEntry(entry.Details.Key, entry.Details.MatchType)
+		matchTypeValue, err := database.MatchTypeFromInt(entry.Details.MatchType)
+		if err != nil {
+			return fmt.Errorf("匹配类型转换错误: %v", err)
+		}
+		return db.DeleteEntry(entry.Details.Key, matchTypeValue)
 
 	case OpUpdate:
 		// 撤销更新 = 恢复旧值
-		return db.UpdateEntry(entry.Details.Key, entry.Details.MatchType, entry.Details.MatchType, entry.Details.OldValue)
+		matchTypeValue, err := database.MatchTypeFromInt(entry.Details.MatchType)
+		if err != nil {
+			return fmt.Errorf("匹配类型转换错误: %v", err)
+		}
+		return db.UpdateEntry(entry.Details.Key, matchTypeValue, matchTypeValue, entry.Details.OldValue)
 
 	case OpDelete:
 		// 撤销删除 = 重新添加
-		return db.AddEntry(entry.Details.Key, entry.Details.MatchType, entry.Details.OldValue)
+		matchTypeValue, err := database.MatchTypeFromInt(entry.Details.MatchType)
+		if err != nil {
+			return fmt.Errorf("匹配类型转换错误: %v", err)
+		}
+		return db.AddEntry(entry.Details.Key, matchTypeValue, entry.Details.OldValue)
 
 	case OpBatchDelete:
 		// 批量删除无法撤销

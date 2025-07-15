@@ -10,6 +10,7 @@ import (
 
 	"TGFaqBot/config"
 	"TGFaqBot/database"
+	"TGFaqBot/multichat"
 )
 
 type CallbackHandler struct {
@@ -18,15 +19,19 @@ type CallbackHandler struct {
 	state        *State
 	adminHandler *AdminHandler
 	listHandler  *ListHandler
+	prefManager  *PreferenceManager
+	multichatMgr *multichat.Manager
 }
 
-func NewCallbackHandler(db database.Database, conf *config.Config, state *State) *CallbackHandler {
+func NewCallbackHandler(db database.Database, conf *config.Config, state *State, prefManager *PreferenceManager, multichatMgr *multichat.Manager) *CallbackHandler {
 	return &CallbackHandler{
 		db:           db,
 		conf:         conf,
 		state:        state,
 		adminHandler: NewAdminHandler(db, conf, state),
 		listHandler:  NewListHandler(db, state),
+		prefManager:  prefManager,
+		multichatMgr: multichatMgr,
 	}
 }
 
@@ -62,6 +67,17 @@ func (h *CallbackHandler) HandleCallbackQuery(bot *tgbotapi.BotAPI, callbackQuer
 		h.handleCancelCallback(bot, callbackQuery, chatID, messageID)
 	case strings.HasPrefix(data, "model:"):
 		h.handleModelCallback(bot, callbackQuery, data, chatID, messageID)
+	case strings.HasPrefix(data, "models_page_"):
+		h.handleModelsPageCallback(bot, callbackQuery, data, chatID, messageID)
+	case data == "refresh_models":
+		h.handleRefreshModelsCallback(bot, callbackQuery, chatID, messageID)
+	case data == "models_current":
+		// 当前页按钮，不做任何操作
+		return
+	case strings.HasPrefix(data, "select_model_"):
+		h.handleSelectModelCallback(bot, callbackQuery, data, chatID, messageID)
+	case data == "clear_model_preference":
+		h.handleClearModelPreferenceCallback(bot, callbackQuery, chatID, messageID)
 	}
 
 	// Acknowledge the callback
@@ -137,6 +153,10 @@ func (h *CallbackHandler) handleShowUpdateTypesCallback(bot *tgbotapi.BotAPI, _ 
 			tgbotapi.NewInlineKeyboardButtonData("正则", fmt.Sprintf("update_type_%d_%d_%d", entryID, matchType, 3)),
 		},
 		{
+			tgbotapi.NewInlineKeyboardButtonData("前缀", fmt.Sprintf("update_type_%d_%d_%d", entryID, matchType, 4)),
+			tgbotapi.NewInlineKeyboardButtonData("后缀", fmt.Sprintf("update_type_%d_%d_%d", entryID, matchType, 5)),
+		},
+		{
 			tgbotapi.NewInlineKeyboardButtonData("返回", fmt.Sprintf("entry_%d_%d", entryID, matchType)),
 			tgbotapi.NewInlineKeyboardButtonData("取消", "cancel"),
 		},
@@ -183,7 +203,13 @@ func (h *CallbackHandler) handleUpdateTypeCallback(bot *tgbotapi.BotAPI, _ *tgbo
 	})
 
 	// 获取当前条目信息用于显示预览
-	entry, err := h.db.QueryByID(entryID, oldType)
+	oldTypeValue, err := database.MatchTypeFromInt(oldType)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "类型转换错误"))
+		return
+	}
+
+	entry, err := h.db.QueryByID(entryID, oldTypeValue)
 	var currentInfo string
 	if err == nil && entry != nil {
 		currentInfo = fmt.Sprintf("\n\n📝 当前内容:\nKey: %s\nValue: %s", entry.Key, entry.Value)
@@ -214,7 +240,13 @@ func (h *CallbackHandler) handleDeleteCallback(bot *tgbotapi.BotAPI, _ *tgbotapi
 		return
 	}
 
-	entry, err := h.db.QueryByID(entryID, matchType)
+	matchTypeValue, err := database.MatchTypeFromInt(matchType)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "匹配类型转换错误"))
+		return
+	}
+
+	entry, err := h.db.QueryByID(entryID, matchTypeValue)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 		bot.Send(tgbotapi.NewMessage(chatID, "无法获取条目"))
@@ -260,8 +292,14 @@ func (h *CallbackHandler) handleConfirmDeleteCallback(bot *tgbotapi.BotAPI, _ *t
 		return
 	}
 
+	matchTypeValue, err := database.MatchTypeFromInt(matchType)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "匹配类型转换错误"))
+		return
+	}
+
 	// 获取条目信息用于记录
-	entry, err := h.db.QueryByID(entryID, matchType)
+	entry, err := h.db.QueryByID(entryID, matchTypeValue)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 		bot.Send(tgbotapi.NewMessage(chatID, "无法获取条目"))
@@ -274,7 +312,7 @@ func (h *CallbackHandler) handleConfirmDeleteCallback(bot *tgbotapi.BotAPI, _ *t
 	}
 
 	// 执行删除操作
-	err = h.db.DeleteEntry(entry.Key, matchType)
+	err = h.db.DeleteEntry(entry.Key, matchTypeValue)
 	if err != nil {
 		log.Printf("Error deleting entry: %v", err)
 		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "❌ 删除失败："+err.Error())
@@ -306,6 +344,12 @@ func (h *CallbackHandler) handleConfirmBatchDeleteCallback(bot *tgbotapi.BotAPI,
 		return
 	}
 
+	matchTypeValue, err := database.MatchTypeFromInt(matchType)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(chatID, "匹配类型转换错误"))
+		return
+	}
+
 	var pattern string
 	if len(parts) > 1 {
 		pattern = parts[1]
@@ -314,9 +358,9 @@ func (h *CallbackHandler) handleConfirmBatchDeleteCallback(bot *tgbotapi.BotAPI,
 	// 重新获取符合条件的条目（防止数据变化）
 	var entries []database.Entry
 	if pattern == "" {
-		entries, err = h.db.ListSpecificEntries(matchType)
+		entries, err = h.db.ListSpecificEntries(matchTypeValue)
 	} else {
-		allEntries, err := h.db.ListSpecificEntries(matchType)
+		allEntries, err := h.db.ListSpecificEntries(matchTypeValue)
 		if err == nil {
 			for _, entry := range allEntries {
 				if strings.Contains(entry.Key, pattern) || strings.Contains(entry.Value, pattern) {
@@ -468,4 +512,280 @@ func (h *CallbackHandler) handleModelCallback(bot *tgbotapi.BotAPI, callbackQuer
 	msgText := fmt.Sprintf("模型偏好已记录: %s\n注意：实际使用的模型将根据当前可用的AI提供商自动选择", modelName)
 	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, msgText)
 	bot.Send(editMsg)
+}
+
+func (h *CallbackHandler) handleModelsPageCallback(bot *tgbotapi.BotAPI, callbackQuery *tgbotapi.CallbackQuery, data string, chatID int64, messageID int) {
+	pageStr := strings.TrimPrefix(data, "models_page_")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		log.Printf("Error parsing models page number: %v", err)
+		return
+	}
+
+	h.sendModelsPage(bot, chatID, messageID, page)
+
+	// 确认回调
+	bot.Request(tgbotapi.NewCallback(callbackQuery.ID, ""))
+}
+
+func (h *CallbackHandler) handleRefreshModelsCallback(bot *tgbotapi.BotAPI, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int) {
+	h.sendModelsPage(bot, chatID, messageID, 1)
+
+	// 确认回调
+	bot.Request(tgbotapi.NewCallback(callbackQuery.ID, "模型列表已刷新"))
+}
+
+func (h *CallbackHandler) sendModelsPage(bot *tgbotapi.BotAPI, chatID int64, messageID int, page int) {
+	allModels, err := h.db.GetAllModels()
+	if err != nil {
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "❌ 获取模型列表失败: "+err.Error())
+		bot.Send(editMsg)
+		return
+	}
+
+	if len(allModels) == 0 {
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "📄 暂无可用模型，请先刷新模型列表")
+		bot.Send(editMsg)
+		return
+	}
+
+	// 获取当前可用的提供商列表
+	availableProviders := h.multichatMgr.GetAvailableProviders()
+	if len(availableProviders) == 0 {
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "❌ 没有可用的AI提供商")
+		bot.Send(editMsg)
+		return
+	}
+
+	// 只包含可用提供商的模型
+	var allModelsList []database.ModelInfo
+	var providerMap = make(map[string]string) // 模型ID到提供商的映射
+
+	for _, provider := range availableProviders {
+		if models, exists := allModels[provider]; exists {
+			for _, model := range models {
+				allModelsList = append(allModelsList, model)
+				providerMap[model.ID] = provider
+			}
+		}
+	}
+
+	if len(allModelsList) == 0 {
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, "📄 当前可用提供商没有模型，请刷新模型列表")
+		bot.Send(editMsg)
+		return
+	}
+
+	// 分页设置
+	const modelsPerPage = 20
+	totalModels := len(allModelsList)
+	totalPages := (totalModels + modelsPerPage - 1) / modelsPerPage
+
+	if page > totalPages {
+		page = totalPages
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	// 计算当前页的模型范围
+	startIdx := (page - 1) * modelsPerPage
+	endIdx := startIdx + modelsPerPage
+	if endIdx > totalModels {
+		endIdx = totalModels
+	}
+
+	// 构建响应消息
+	var response strings.Builder
+	response.WriteString(fmt.Sprintf("🤖 可用模型列表 (第 %d/%d 页)\n", page, totalPages))
+
+	// 显示当前偏好
+	if pref := h.prefManager.GetChatPreference(chatID); pref != nil {
+		response.WriteString(fmt.Sprintf("当前偏好：%s (%s)\n", pref.ModelName, strings.ToUpper(pref.Provider)))
+	} else {
+		response.WriteString("当前偏好：未设置（使用默认策略）\n")
+	}
+
+	response.WriteString("点击模型名称来选择使用\n\n")
+
+	// 构建模型选择按钮
+	var buttons [][]tgbotapi.InlineKeyboardButton
+	var modelButtons []tgbotapi.InlineKeyboardButton
+
+	currentProvider := ""
+	buttonCount := 0
+	for i := startIdx; i < endIdx; i++ {
+		model := allModelsList[i]
+		provider := providerMap[model.ID]
+
+		// 如果是新的提供商，添加提供商标题
+		if provider != currentProvider {
+			// 如果有未完成的按钮行，先添加到buttons中
+			if len(modelButtons) > 0 {
+				buttons = append(buttons, modelButtons)
+				modelButtons = nil
+			}
+
+			if currentProvider != "" {
+				response.WriteString("\n")
+			}
+			response.WriteString(fmt.Sprintf("**%s**\n", strings.ToUpper(provider)))
+			currentProvider = provider
+		}
+
+		// 添加模型信息到消息文本
+		response.WriteString(fmt.Sprintf("  • %s", model.Name))
+		if model.Description != "" {
+			response.WriteString(fmt.Sprintf(" - %s", model.Description))
+		}
+		response.WriteString("\n")
+
+		// 创建模型选择按钮（简化名称以适应按钮宽度）
+		buttonText := model.Name
+		if len(buttonText) > 20 {
+			buttonText = buttonText[:17] + "..."
+		}
+		modelButtons = append(modelButtons,
+			tgbotapi.NewInlineKeyboardButtonData(buttonText, fmt.Sprintf("select_model_%s", model.ID)))
+		buttonCount++
+
+		// 每行最多2个按钮
+		if len(modelButtons) >= 2 {
+			buttons = append(buttons, modelButtons)
+			modelButtons = nil
+		}
+	}
+
+	// 添加剩余的模型按钮
+	if len(modelButtons) > 0 {
+		buttons = append(buttons, modelButtons)
+	}
+	var pageButtons []tgbotapi.InlineKeyboardButton
+
+	if page > 1 {
+		pageButtons = append(pageButtons,
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ 上一页", fmt.Sprintf("models_page_%d", page-1)))
+	}
+
+	pageButtons = append(pageButtons,
+		tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%d/%d", page, totalPages), "models_current"))
+
+	if page < totalPages {
+		pageButtons = append(pageButtons,
+			tgbotapi.NewInlineKeyboardButtonData("下一页 ➡️", fmt.Sprintf("models_page_%d", page+1)))
+	}
+
+	buttons = append(buttons, pageButtons)
+
+	// 添加刷新按钮
+	buttons = append(buttons, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("🔄 刷新模型列表", "refresh_models"),
+	})
+
+	// 编辑消息
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, response.String())
+	editMsg.ParseMode = "Markdown"
+	editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: buttons}
+	bot.Send(editMsg)
+}
+
+func (h *CallbackHandler) handleSelectModelCallback(bot *tgbotapi.BotAPI, callbackQuery *tgbotapi.CallbackQuery, data string, chatID int64, messageID int) {
+	modelID := strings.TrimPrefix(data, "select_model_")
+
+	// 获取模型信息进行显示
+	allModels, err := h.db.GetAllModels()
+	if err != nil {
+		bot.Request(tgbotapi.NewCallback(callbackQuery.ID, "获取模型信息失败"))
+		return
+	}
+
+	var selectedModel *database.ModelInfo
+	var selectedProvider string
+
+	// 查找选中的模型
+	for provider, models := range allModels {
+		for _, model := range models {
+			if model.ID == modelID {
+				selectedModel = &model
+				selectedProvider = provider
+				break
+			}
+		}
+		if selectedModel != nil {
+			break
+		}
+	}
+
+	if selectedModel == nil {
+		bot.Request(tgbotapi.NewCallback(callbackQuery.ID, "未找到选中的模型"))
+		return
+	}
+
+	// 验证提供商是否可用
+	if !h.multichatMgr.IsProviderAvailable(selectedProvider) {
+		bot.Request(tgbotapi.NewCallback(callbackQuery.ID, "该模型的提供商当前不可用"))
+
+		// 显示错误信息
+		msgText := fmt.Sprintf("❌ 模型选择失败\n\n🤖 模型：%s\n🏢 提供商：%s\n\n⚠️ 该提供商当前不可用，请选择其他模型",
+			selectedModel.Name, strings.ToUpper(selectedProvider))
+
+		editMsg := tgbotapi.NewEditMessageText(chatID, messageID, msgText)
+		backButton := tgbotapi.NewInlineKeyboardButtonData("← 返回模型列表", "models_page_1")
+		editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{{backButton}},
+		}
+		bot.Send(editMsg)
+		return
+	}
+
+	// 存储聊天的模型偏好
+	h.prefManager.SetChatPreference(chatID, selectedModel.ID, selectedProvider, selectedModel.Name)
+
+	// 显示模型选择确认
+	msgText := fmt.Sprintf("✅ 已选择模型：\n\n🤖 **%s**\n🏢 提供商：%s",
+		selectedModel.Name, strings.ToUpper(selectedProvider))
+
+	if selectedModel.Description != "" {
+		msgText += fmt.Sprintf("\n📋 描述：%s", selectedModel.Description)
+	}
+
+	msgText += "\n\n💡 此模型偏好已保存到当前聊天会话。当有多个AI提供商可用时，系统将优先尝试使用您选择的模型。"
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, msgText)
+	editMsg.ParseMode = "Markdown"
+
+	// 添加返回按钮和清除偏好按钮
+	buttons := [][]tgbotapi.InlineKeyboardButton{
+		{
+			tgbotapi.NewInlineKeyboardButtonData("← 返回模型列表", "models_page_1"),
+			tgbotapi.NewInlineKeyboardButtonData("🗑️ 清除偏好", "clear_model_preference"),
+		},
+	}
+	editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{InlineKeyboard: buttons}
+
+	bot.Send(editMsg)
+
+	// 确认回调
+	bot.Request(tgbotapi.NewCallback(callbackQuery.ID, fmt.Sprintf("已选择：%s", selectedModel.Name)))
+}
+
+func (h *CallbackHandler) handleClearModelPreferenceCallback(bot *tgbotapi.BotAPI, callbackQuery *tgbotapi.CallbackQuery, chatID int64, messageID int) {
+	// 清除聊天的模型偏好
+	h.prefManager.ClearChatPreference(chatID)
+
+	// 显示确认消息
+	msgText := "🗑️ 已清除模型偏好\n\n💡 系统将使用默认的多AI提供商策略来选择模型"
+
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, msgText)
+
+	// 添加返回按钮
+	backButton := tgbotapi.NewInlineKeyboardButtonData("← 返回模型列表", "models_page_1")
+	editMsg.ReplyMarkup = &tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{{backButton}},
+	}
+
+	bot.Send(editMsg)
+
+	// 确认回调
+	bot.Request(tgbotapi.NewCallback(callbackQuery.ID, "已清除模型偏好"))
 }

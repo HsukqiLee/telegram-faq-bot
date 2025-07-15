@@ -1,18 +1,23 @@
 package handlers
 
 import (
+	"TGFaqBot/database"
 	"sync"
 	"time"
 )
 
 // Conversation 对话状态结构
 type Conversation struct {
-	Stage     string
-	EntryID   int
-	NewType   int
-	OldType   int
-	MessageID int
-	CreatedAt time.Time // 添加创建时间用于超时检查
+	Stage           string
+	EntryID         int
+	NewType         int
+	OldType         int
+	MessageID       int
+	CreatedAt       time.Time          // 添加创建时间用于超时检查
+	TelegraphAction string             // "text" 或 "image"
+	TelegraphKey    string             // Telegraph 内容的键名
+	TelegraphTitle  string             // Telegraph 页面标题
+	MatchType       database.MatchType // 匹配类型
 }
 
 // State 对话状态管理器

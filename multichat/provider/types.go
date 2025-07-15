@@ -9,6 +9,12 @@ type Provider interface {
 	Chat(messages []Message, model string) (*ChatResponse, error)
 }
 
+// StreamingProvider 支持流式回调的AI提供商接口
+type StreamingProvider interface {
+	Provider
+	ChatWithCallback(messages []Message, model string, callback StreamingCallback) (*ChatResponse, error)
+}
+
 // Message 消息结构
 type Message struct {
 	Role    string    `json:"role"`

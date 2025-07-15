@@ -67,16 +67,16 @@ func (h *AdminHandler) HandleAdminCommand(bot *tgbotapi.BotAPI, message *tgbotap
 
 	if message.Command() == "delete" {
 		if len(parts) < 2 {
-			bot.Send(tgbotapi.NewMessage(message.Chat.ID, "格式错误，请使用：/delete key type\n其中，type 的取值可以是：\n• 1: 表示精确匹配\n• 2: 表示模糊匹配\n• 3: 表示正则匹配"))
+			bot.Send(tgbotapi.NewMessage(message.Chat.ID, "格式错误，请使用：/delete key type\n其中，type 的取值可以是：\n• exact: 表示精确匹配\n• contains: 表示包含匹配\n• regex: 表示正则匹配"))
 			return
 		}
 	} else if len(parts) < 3 {
 		var helpMsg string
 		switch message.Command() {
 		case "add":
-			helpMsg = "格式错误，请使用：/add key type value\n其中，type 的取值可以是：\n• 1: 表示精确匹配\n• 2: 表示模糊匹配\n• 3: 表示正则匹配"
+			helpMsg = "格式错误，请使用：/add key type value\n其中，type 的取值可以是：\n• exact: 表示精确匹配\n• contains: 表示包含匹配\n• regex: 表示正则匹配"
 		case "update":
-			helpMsg = "格式错误，请使用：/update key oldType newType value\n其中，type 的取值可以是：\n• 1: 表示精确匹配\n• 2: 表示模糊匹配\n• 3: 表示正则匹配"
+			helpMsg = "格式错误，请使用：/update key oldType newType value\n其中，type 的取值可以是：\n• exact: 表示精确匹配\n• contains: 表示包含匹配\n• regex: 表示正则匹配"
 		}
 		bot.Send(tgbotapi.NewMessage(message.Chat.ID, helpMsg))
 		return
@@ -85,9 +85,21 @@ func (h *AdminHandler) HandleAdminCommand(bot *tgbotapi.BotAPI, message *tgbotap
 	key := parts[0]
 	matchTypeStr := parts[1]
 
-	matchType, err := strconv.Atoi(matchTypeStr)
-	if err != nil || (matchType != 1 && matchType != 2 && matchType != 3) {
-		helpMsg := fmt.Sprintf("type 参数错误，在 /%s 命令中，type 必须是：\n• 1: 表示精确匹配\n• 2: 表示模糊匹配\n• 3: 表示正则匹配", message.Command())
+	// 验证并转换匹配类型
+	var matchType database.MatchType
+	switch matchTypeStr {
+	case "exact":
+		matchType = database.MatchExact
+	case "contains":
+		matchType = database.MatchContains
+	case "regex":
+		matchType = database.MatchRegex
+	case "prefix":
+		matchType = database.MatchPrefix
+	case "suffix":
+		matchType = database.MatchSuffix
+	default:
+		helpMsg := fmt.Sprintf("type 参数错误，在 /%s 命令中，type 必须是：\n• exact: 表示精确匹配\n• contains: 表示包含匹配\n• regex: 表示正则匹配\n• prefix: 表示前缀匹配\n• suffix: 表示后缀匹配", message.Command())
 		bot.Send(tgbotapi.NewMessage(message.Chat.ID, helpMsg))
 		return
 	}
@@ -126,13 +138,27 @@ func (h *AdminHandler) HandleAdminCommand(bot *tgbotapi.BotAPI, message *tgbotap
 			return
 		}
 		newTypeStr := parts[2]
-		newType, err := strconv.Atoi(newTypeStr)
-		if err != nil || (newType < 1 || newType > 3) {
-			bot.Send(tgbotapi.NewMessage(message.Chat.ID, "NewType 参数错误，必须是 1, 2, 或 3"))
+		newValue := parts[3]
+
+		// 验证并转换新匹配类型
+		var newType database.MatchType
+		switch newTypeStr {
+		case "exact":
+			newType = database.MatchExact
+		case "contains":
+			newType = database.MatchContains
+		case "regex":
+			newType = database.MatchRegex
+		case "prefix":
+			newType = database.MatchPrefix
+		case "suffix":
+			newType = database.MatchSuffix
+		default:
+			bot.Send(tgbotapi.NewMessage(message.Chat.ID, "NewType 参数错误，必须是 exact, contains, regex, prefix, suffix"))
 			return
 		}
-		newValue := parts[3]
-		err = h.db.UpdateEntry(key, matchType, newType, newValue)
+
+		err := h.db.UpdateEntry(key, matchType, newType, newValue)
 		if err != nil {
 			log.Printf("Error updating entry: %v", err)
 			bot.Send(tgbotapi.NewMessage(message.Chat.ID, "更新失败"))
@@ -141,7 +167,7 @@ func (h *AdminHandler) HandleAdminCommand(bot *tgbotapi.BotAPI, message *tgbotap
 		bot.Send(tgbotapi.NewMessage(message.Chat.ID, "更新成功"))
 
 	case "delete":
-		err = h.db.DeleteEntry(key, matchType)
+		err := h.db.DeleteEntry(key, matchType)
 		if err != nil {
 			log.Printf("Error deleting entry: %v", err)
 			bot.Send(tgbotapi.NewMessage(message.Chat.ID, "删除失败"))

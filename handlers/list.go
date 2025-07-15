@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -26,20 +25,32 @@ func NewListHandler(db database.Database, state *State) *ListHandler {
 
 func (h *ListHandler) HandleListCommand(bot *tgbotapi.BotAPI, message *tgbotapi.Message, page int) {
 	args := message.CommandArguments()
-	var matchTypes []int
+	var matchTypes []database.MatchType
 
 	if args != "" {
 		typeStrings := strings.Split(args, " ")
 		for _, typeString := range typeStrings {
-			matchType, err := strconv.Atoi(typeString)
-			if err != nil || (matchType != 1 && matchType != 2 && matchType != 3) {
-				bot.Send(tgbotapi.NewMessage(message.Chat.ID, "匹配类型错误，请使用 1, 2, 或 3"))
+			var matchType database.MatchType
+			switch typeString {
+			case "exact":
+				matchType = database.MatchExact
+			case "contains":
+				matchType = database.MatchContains
+			case "regex":
+				matchType = database.MatchRegex
+			case "prefix":
+				matchType = database.MatchPrefix
+			case "suffix":
+				matchType = database.MatchSuffix
+			default:
+				bot.Send(tgbotapi.NewMessage(message.Chat.ID, "匹配类型错误，请使用 exact, contains, regex, prefix, suffix"))
 				return
 			}
 			matchTypes = append(matchTypes, matchType)
 		}
 	}
 
+	// 直接使用 MatchType
 	entries, err := h.db.ListSpecificEntries(matchTypes...)
 	if err != nil {
 		log.Printf("Error listing entries: %v", err)
@@ -65,7 +76,7 @@ func (h *ListHandler) HandleListCommand(bot *tgbotapi.BotAPI, message *tgbotapi.
 		entry := entries[i]
 		matchTypeText := utils.GetMatchTypeText(entry.MatchType)
 		buttonText := fmt.Sprintf("%s(%s)", entry.Key, matchTypeText)
-		callbackData := fmt.Sprintf("entry_%d_%d", entry.ID, entry.MatchType)
+		callbackData := fmt.Sprintf("entry_%d_%d", entry.ID, entry.MatchType.ToInt())
 		button := tgbotapi.NewInlineKeyboardButtonData(buttonText, callbackData)
 		buttons = append(buttons, []tgbotapi.InlineKeyboardButton{button})
 	}
@@ -105,20 +116,32 @@ func (h *ListHandler) HandleListCommand(bot *tgbotapi.BotAPI, message *tgbotapi.
 
 func (h *ListHandler) HandleListCommandEdit(bot *tgbotapi.BotAPI, message *tgbotapi.Message, page int, messageID int) {
 	args := message.CommandArguments()
-	var matchTypes []int
+	var matchTypes []database.MatchType
 
 	if args != "" {
 		typeStrings := strings.Split(args, " ")
 		for _, typeString := range typeStrings {
-			matchType, err := strconv.Atoi(typeString)
-			if err != nil || (matchType != 1 && matchType != 2 && matchType != 3) {
-				bot.Send(tgbotapi.NewMessage(message.Chat.ID, "匹配类型错误，请使用 1, 2, 或 3"))
+			var matchType database.MatchType
+			switch typeString {
+			case "exact":
+				matchType = database.MatchExact
+			case "contains":
+				matchType = database.MatchContains
+			case "regex":
+				matchType = database.MatchRegex
+			case "prefix":
+				matchType = database.MatchPrefix
+			case "suffix":
+				matchType = database.MatchSuffix
+			default:
+				bot.Send(tgbotapi.NewMessage(message.Chat.ID, "匹配类型错误，请使用 exact, contains, regex, prefix, suffix"))
 				return
 			}
 			matchTypes = append(matchTypes, matchType)
 		}
 	}
 
+	// 直接使用 MatchType
 	entries, err := h.db.ListSpecificEntries(matchTypes...)
 	if err != nil {
 		log.Printf("Error listing entries: %v", err)
@@ -141,7 +164,7 @@ func (h *ListHandler) HandleListCommandEdit(bot *tgbotapi.BotAPI, message *tgbot
 		entry := entries[i]
 		matchTypeText := utils.GetMatchTypeText(entry.MatchType)
 		buttonText := fmt.Sprintf("%s(%s)", entry.Key, matchTypeText)
-		callbackData := fmt.Sprintf("entry_%d_%d", entry.ID, entry.MatchType)
+		callbackData := fmt.Sprintf("entry_%d_%d", entry.ID, entry.MatchType.ToInt())
 		button := tgbotapi.NewInlineKeyboardButtonData(buttonText, callbackData)
 		buttons = append(buttons, []tgbotapi.InlineKeyboardButton{button})
 	}
@@ -171,7 +194,13 @@ func (h *ListHandler) HandleListCommandEdit(bot *tgbotapi.BotAPI, message *tgbot
 }
 
 func (h *ListHandler) HandleEntrySelection(bot *tgbotapi.BotAPI, message *tgbotapi.Message, entryID int, matchType int) {
-	entry, err := h.db.QueryByID(entryID, matchType)
+	matchTypeValue, err := database.MatchTypeFromInt(matchType)
+	if err != nil {
+		bot.Send(tgbotapi.NewMessage(message.Chat.ID, "匹配类型转换错误"))
+		return
+	}
+
+	entry, err := h.db.QueryByID(entryID, matchTypeValue)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 		bot.Send(tgbotapi.NewMessage(message.Chat.ID, "无法获取条目"))

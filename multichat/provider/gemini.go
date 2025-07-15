@@ -190,3 +190,19 @@ func (p *GeminiProvider) Chat(messages []Message, model string) (*ChatResponse, 
 		Provider:     "Gemini",
 	}, nil
 }
+
+// ChatWithCallback 进行对话，支持流式回调
+func (p *GeminiProvider) ChatWithCallback(messages []Message, model string, callback func(string, bool) bool) (*ChatResponse, error) {
+	// Gemini目前不支持真正的流式响应，回退到普通方式
+	response, err := p.Chat(messages, model)
+	if err != nil {
+		return nil, err
+	}
+
+	// 模拟流式回调
+	if callback != nil {
+		callback(response.Content, true)
+	}
+
+	return response, nil
+}

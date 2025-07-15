@@ -14,6 +14,7 @@ type Config struct {
 	Telegram TelegramConfig `json:"telegram"`
 	Chat     ChatConfig     `json:"chat"`
 	Database DatabaseConfig `json:"database"`
+	Redis    RedisConfig    `json:"redis,omitempty"`
 	Admin    AdminConfig    `json:"admin"`
 }
 
@@ -27,16 +28,15 @@ type TelegramConfig struct {
 }
 
 type ChatConfig struct {
-	Prefix                string             `json:"prefix"`                  // 聊天前缀，为空时默认触发
-	SystemPrompt          string             `json:"system_prompt"`           // 全局系统提示词
-	HistoryLength         int                `json:"history_length"`          // 全局历史记录长度
-	HistoryTimeoutMinutes int                `json:"history_timeout_minutes"` // 全局历史超时分钟数
-	Timeout               int64              `json:"timeout"`                 // 全局超时时间
-	OpenAI                *ProviderConfig    `json:"openai,omitempty"`
-	Anthropic             *ProviderConfig    `json:"anthropic,omitempty"`
-	Gemini                *ProviderConfig    `json:"gemini,omitempty"`
-	Ollama                *ProviderConfig    `json:"ollama,omitempty"`
-	CachedModels          map[string][]Model `json:"cached_models,omitempty"` // 缓存的模型列表
+	Prefix                string          `json:"prefix"`                  // 聊天前缀，为空时默认触发
+	SystemPrompt          string          `json:"system_prompt"`           // 全局系统提示词
+	HistoryLength         int             `json:"history_length"`          // 全局历史记录长度
+	HistoryTimeoutMinutes int             `json:"history_timeout_minutes"` // 全局历史超时分钟数
+	Timeout               int64           `json:"timeout"`                 // 全局超时时间
+	OpenAI                *ProviderConfig `json:"openai,omitempty"`
+	Anthropic             *ProviderConfig `json:"anthropic,omitempty"`
+	Gemini                *ProviderConfig `json:"gemini,omitempty"`
+	Ollama                *ProviderConfig `json:"ollama,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -100,6 +100,19 @@ type PostgreSQLConfig struct {
 	SSLMode  string `json:"sslmode,omitempty"` // disable, require, verify-ca, verify-full
 }
 
+type RedisConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Password string `json:"password,omitempty"`
+	Database int    `json:"database"`
+	TTL      int    `json:"ttl"` // TTL in seconds for conversation data
+	
+	// AI对话缓存配置
+	AICacheEnabled bool `json:"ai_cache_enabled"` // 是否开启AI对话缓存
+	AICacheTTL     int  `json:"ai_cache_ttl"`     // AI对话缓存过期时间(秒)
+}
+
 type AdminConfig struct {
 	SuperAdminIDs   []int64 `json:"super_admin_ids"`
 	AdminIDs        []int64 `json:"admin_ids"`
@@ -132,11 +145,6 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 	if config.Chat.Timeout == 0 {
 		config.Chat.Timeout = 60
-	}
-
-	// 初始化缓存的模型列表
-	if config.Chat.CachedModels == nil {
-		config.Chat.CachedModels = make(map[string][]Model)
 	}
 
 	// 加载环境变量覆盖配置
@@ -341,20 +349,4 @@ func (p *ProviderConfig) GetSystemPrompt(globalPrompt string) string {
 		return p.SystemPrompt
 	}
 	return globalPrompt
-}
-
-// UpdateCachedModels 更新缓存的模型列表
-func (c *ChatConfig) UpdateCachedModels(provider string, models []Model) {
-	if c.CachedModels == nil {
-		c.CachedModels = make(map[string][]Model)
-	}
-	c.CachedModels[provider] = models
-}
-
-// GetCachedModels 获取缓存的模型列表
-func (c *ChatConfig) GetCachedModels(provider string) []Model {
-	if c.CachedModels == nil {
-		return nil
-	}
-	return c.CachedModels[provider]
 }

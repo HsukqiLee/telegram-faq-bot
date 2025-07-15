@@ -7,12 +7,16 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"TGFaqBot/config"
 )
 
 type JSONDB struct {
-	filename string
-	data     map[string][]Entry     // {"exact": [], "contains": [], "regex": []}
-	models   map[string][]ModelInfo // {"openai": [], "anthropic": [], ...}
+	filename   string
+	data       map[string][]Entry     // {"exact": [], "contains": [], "regex": []}
+	models     map[string][]ModelInfo // {"openai": [], "anthropic": [], ...}
+	modelCache []config.Model         // 缓存的模型列表
+	cacheTime  string                 // 缓存时间
 }
 
 func NewJSONDB(filename string) (*JSONDB, error) {
@@ -48,18 +52,8 @@ func (j *JSONDB) Query(query string) ([]Entry, error) {
 	return allEntries, nil
 }
 
-func (j *JSONDB) QueryByID(id int, matchType int) (*Entry, error) {
-	var tableName string
-	switch matchType {
-	case 1:
-		tableName = "exact"
-	case 2:
-		tableName = "contains"
-	case 3:
-		tableName = "regex"
-	default:
-		return nil, fmt.Errorf("invalid match type: %d", matchType)
-	}
+func (j *JSONDB) QueryByID(id int, matchType MatchType) (*Entry, error) {
+	tableName := matchType.GetTableName()
 
 	entries, ok := j.data[tableName]
 	if !ok {
@@ -76,31 +70,31 @@ func (j *JSONDB) QueryByID(id int, matchType int) (*Entry, error) {
 	return nil, fmt.Errorf("entry with ID %d not found in %s", id, tableName)
 }
 
-func (j *JSONDB) AddEntry(key string, matchType int, value string) error {
+func (j *JSONDB) AddEntry(key string, matchType MatchType, value string) error {
 	switch matchType {
-	case 1:
+	case MatchExact:
 		return j.AddEntryExact(key, value)
-	case 2:
+	case MatchContains:
 		return j.AddEntryContains(key, value)
-	case 3:
+	case MatchRegex:
 		return j.AddEntryRegex(key, value)
 	default:
-		return fmt.Errorf("invalid match type: %d", matchType)
+		return fmt.Errorf("invalid match type: %s", matchType)
 	}
 }
 
-func (j *JSONDB) UpdateEntry(key string, oldType int, newType int, value string) error {
+func (j *JSONDB) UpdateEntry(key string, oldType MatchType, newType MatchType, value string) error {
 	if oldType == newType {
 		// Same type, use existing UpdateEntryXXX functions
 		switch oldType {
-		case 1:
+		case MatchExact:
 			return j.UpdateEntryExact(key, value)
-		case 2:
+		case MatchContains:
 			return j.UpdateEntryContains(key, value)
-		case 3:
+		case MatchRegex:
 			return j.UpdateEntryRegex(key, value)
 		default:
-			return fmt.Errorf("invalid match type: %d", oldType)
+			return fmt.Errorf("invalid match type: %s", oldType)
 		}
 	} else {
 		// Different types, delete from old and add to new
@@ -111,16 +105,16 @@ func (j *JSONDB) UpdateEntry(key string, oldType int, newType int, value string)
 	}
 }
 
-func (j *JSONDB) DeleteEntry(key string, matchType int) error {
+func (j *JSONDB) DeleteEntry(key string, matchType MatchType) error {
 	switch matchType {
-	case 1:
+	case MatchExact:
 		return j.DeleteEntryExact(key)
-	case 2:
+	case MatchContains:
 		return j.DeleteEntryContains(key)
-	case 3:
+	case MatchRegex:
 		return j.DeleteEntryRegex(key)
 	default:
-		return fmt.Errorf("invalid match type: %d", matchType)
+		return fmt.Errorf("invalid match type: %s", matchType)
 	}
 }
 
@@ -135,21 +129,21 @@ func (j *JSONDB) ListEntries(table string) ([]Entry, error) {
 			entries, err = j.listEntries("exact")
 			if err == nil {
 				for i := range entries {
-					entries[i].MatchType = 1
+					entries[i].MatchType = MatchExact
 				}
 			}
 		case 2:
 			entries, err = j.listEntries("contains")
 			if err == nil {
 				for i := range entries {
-					entries[i].MatchType = 2
+					entries[i].MatchType = MatchContains
 				}
 			}
 		case 3:
 			entries, err = j.listEntries("regex")
 			if err == nil {
 				for i := range entries {
-					entries[i].MatchType = 3
+					entries[i].MatchType = MatchRegex
 				}
 			}
 		default:
@@ -165,7 +159,7 @@ func (j *JSONDB) ListEntries(table string) ([]Entry, error) {
 	return allEntries, nil
 }
 
-func (j *JSONDB) ListSpecificEntries(matchTypes ...int) ([]Entry, error) {
+func (j *JSONDB) ListSpecificEntries(matchTypes ...MatchType) ([]Entry, error) {
 	if len(matchTypes) == 0 {
 		// List all entries if no match types are specified
 		return j.ListAllEntries()
@@ -177,14 +171,14 @@ func (j *JSONDB) ListSpecificEntries(matchTypes ...int) ([]Entry, error) {
 		var err error
 
 		switch matchType {
-		case 1:
+		case MatchExact:
 			entries, err = j.ListEntriesExact()
-		case 2:
+		case MatchContains:
 			entries, err = j.ListEntriesContains()
-		case 3:
+		case MatchRegex:
 			entries, err = j.ListEntriesRegex()
 		default:
-			return nil, fmt.Errorf("invalid match type: %d", matchType)
+			return nil, fmt.Errorf("invalid match type: %s", matchType)
 		}
 
 		if err != nil {
@@ -205,11 +199,11 @@ func (j *JSONDB) ListAllEntries() ([]Entry, error) {
 		for i := range entries {
 			switch matchType {
 			case "exact":
-				entries[i].MatchType = 1
+				entries[i].MatchType = MatchExact
 			case "contains":
-				entries[i].MatchType = 2
+				entries[i].MatchType = MatchContains
 			case "regex":
-				entries[i].MatchType = 3
+				entries[i].MatchType = MatchRegex
 			}
 		}
 		allEntries = append(allEntries, entries...)
@@ -239,14 +233,14 @@ func (j *JSONDB) query(query string, matchType string) ([]Entry, error) {
 	case "exact":
 		for _, entry := range entries {
 			if entry.Key == query {
-				entry.MatchType = 1
+				entry.MatchType = MatchExact
 				results = append(results, entry)
 			}
 		}
 	case "contains":
 		for _, entry := range entries {
 			if strings.Contains(query, entry.Key) {
-				entry.MatchType = 2
+				entry.MatchType = MatchContains
 				results = append(results, entry)
 			}
 		}
@@ -254,7 +248,7 @@ func (j *JSONDB) query(query string, matchType string) ([]Entry, error) {
 		for _, entry := range entries {
 			matched, _ := regexp.MatchString(entry.Key, query)
 			if matched {
-				entry.MatchType = 3
+				entry.MatchType = MatchRegex
 				results = append(results, entry)
 			}
 		}
@@ -306,7 +300,7 @@ func (j *JSONDB) addEntry(key string, value string, matchType string) error {
 		ID:        newID,
 		Key:       key,
 		Value:     value,
-		MatchType: matchTypeInt,
+		MatchType: intToMatchType(matchTypeInt),
 	}
 	j.data[matchType] = append(entries, newEntry)
 	return j.Save()
@@ -331,11 +325,11 @@ func (j *JSONDB) updateEntry(key string, value string, matchType string) error {
 			j.data[matchType][i].Value = value
 			switch matchType {
 			case "exact":
-				j.data[matchType][i].MatchType = 1
+				j.data[matchType][i].MatchType = MatchExact
 			case "contains":
-				j.data[matchType][i].MatchType = 2
+				j.data[matchType][i].MatchType = MatchContains
 			case "regex":
-				j.data[matchType][i].MatchType = 3
+				j.data[matchType][i].MatchType = MatchRegex
 			}
 			return j.Save()
 		}
@@ -406,6 +400,8 @@ func (j *JSONDB) Reload() error {
 			"regex":    {},
 		}
 		j.models = make(map[string][]ModelInfo)
+		j.modelCache = []config.Model{}
+		j.cacheTime = ""
 		return nil
 	}
 
@@ -419,10 +415,13 @@ func (j *JSONDB) Reload() error {
 	// 初始化数据结构
 	j.data = make(map[string][]Entry)
 	j.models = make(map[string][]ModelInfo)
+	j.modelCache = []config.Model{}
+	j.cacheTime = ""
 
 	// 解析FAQ数据
 	for key, value := range fullData {
-		if key == "models" {
+		switch key {
+		case "models":
 			// 解析模型数据
 			if modelsData, ok := value.(map[string]interface{}); ok {
 				for provider, models := range modelsData {
@@ -444,7 +443,26 @@ func (j *JSONDB) Reload() error {
 					}
 				}
 			}
-		} else {
+		case "model_cache":
+			// 解析模型缓存数据
+			if cacheData, ok := value.(map[string]interface{}); ok {
+				if cacheTime, ok := cacheData["cache_time"].(string); ok {
+					j.cacheTime = cacheTime
+				}
+				if modelList, ok := cacheData["models"].([]interface{}); ok {
+					for _, model := range modelList {
+						if modelMap, ok := model.(map[string]interface{}); ok {
+							modelInfo := config.Model{
+								ID:       getString(modelMap, "id"),
+								Name:     getString(modelMap, "name"),
+								Provider: getString(modelMap, "provider"),
+							}
+							j.modelCache = append(j.modelCache, modelInfo)
+						}
+					}
+				}
+			}
+		default:
 			// 解析FAQ条目数据
 			if entryList, ok := value.([]interface{}); ok {
 				var entries []Entry
@@ -454,7 +472,7 @@ func (j *JSONDB) Reload() error {
 							ID:        int(getFloat64(entryMap, "id")),
 							Key:       getString(entryMap, "key"),
 							Value:     getString(entryMap, "value"),
-							MatchType: int(getFloat64(entryMap, "match_type")),
+							MatchType: intToMatchType(int(getFloat64(entryMap, "match_type"))),
 						}
 						entries = append(entries, entryInfo)
 					}
@@ -531,12 +549,20 @@ func (j *JSONDB) DeleteModels(provider string) error {
 }
 
 func (j *JSONDB) SaveWithModels() error {
-	// 创建包含FAQ数据和模型数据的完整结构
+	// 创建包含FAQ数据、模型数据和缓存数据的完整结构
 	fullData := map[string]interface{}{
 		"exact":    j.data["exact"],
 		"contains": j.data["contains"],
 		"regex":    j.data["regex"],
 		"models":   j.models,
+	}
+
+	// 添加模型缓存数据
+	if len(j.modelCache) > 0 {
+		fullData["model_cache"] = map[string]interface{}{
+			"models":     j.modelCache,
+			"cache_time": j.cacheTime,
+		}
 	}
 
 	bytes, err := json.MarshalIndent(fullData, "", "  ")
@@ -545,6 +571,23 @@ func (j *JSONDB) SaveWithModels() error {
 	}
 
 	return os.WriteFile(j.filename, bytes, 0644)
+}
+
+// 模型缓存接口实现
+func (j *JSONDB) SetModelCache(models []config.Model, updatedAt string) error {
+	j.modelCache = models
+	j.cacheTime = updatedAt
+	return j.SaveWithModels()
+}
+
+func (j *JSONDB) GetModelCache() ([]config.Model, string, error) {
+	return j.modelCache, j.cacheTime, nil
+}
+
+func (j *JSONDB) ClearModelCache() error {
+	j.modelCache = []config.Model{}
+	j.cacheTime = ""
+	return j.SaveWithModels()
 }
 
 // 辅助函数用于类型转换
@@ -564,4 +607,20 @@ func getFloat64(m map[string]interface{}, key string) float64 {
 		}
 	}
 	return 0
+}
+
+// Telegraph 内容管理方法
+func (j *JSONDB) AddTelegraphEntry(key string, matchType MatchType, value string, contentType string, telegraphURL string, telegraphPath string) error {
+	// 暂时简化实现，将 Telegraph URL 存储在 value 字段中
+	return j.AddEntry(key, matchType, telegraphURL)
+}
+
+func (j *JSONDB) UpdateTelegraphEntry(key string, matchType MatchType, value string, contentType string, telegraphURL string, telegraphPath string) error {
+	// 暂时简化实现
+	return j.UpdateEntry(key, matchType, matchType, telegraphURL)
+}
+
+func (j *JSONDB) GetTelegraphContent(key string, matchType MatchType) (*Entry, error) {
+	// 暂时使用现有的查询方法
+	return j.QueryByID(1, matchType) // 默认ID为1
 }
