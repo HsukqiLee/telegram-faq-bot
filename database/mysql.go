@@ -9,9 +9,9 @@ import (
 )
 
 type MySQLDB struct {
-	cfg        config.MySQLConfig
-	db         *sql.DB
-	commonOps  *CommonSQLOperations
+	cfg       config.MySQLConfig
+	db        *sql.DB
+	commonOps *CommonSQLOperations
 }
 
 func NewMySQLDB(cfg config.MySQLConfig) (*MySQLDB, error) {
@@ -315,7 +315,7 @@ func (m *MySQLDB) Reload() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 重新初始化common operations
 	m.commonOps = NewCommonSQLOperations(m.db)
 	return nil

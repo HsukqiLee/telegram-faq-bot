@@ -51,34 +51,43 @@ func (qb *SQLQueryBuilder) BuildSelectByID(tableName string, columns []string) (
 	if err := qb.validator.ValidateTable(tableName); err != nil {
 		return "", err
 	}
-	
-	columnList := "id, `key`, `value`"
-	if len(columns) > 0 {
-		columnList = ""
-		for i, col := range columns {
-			if i > 0 {
-				columnList += ", "
-			}
-			columnList += col
+
+	// 使用预定义的安全查询模式
+	var query string
+	if len(columns) == 6 {
+		// 完整列查询（适用于SQLite扩展字段）
+		switch tableName {
+		case "exact":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact WHERE id = ?"
+		case "contains":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains WHERE id = ?"
+		case "regex":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex WHERE id = ?"
+		case "prefix":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM prefix WHERE id = ?"
+		case "suffix":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM suffix WHERE id = ?"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
+		}
+	} else {
+		// 基本列查询
+		switch tableName {
+		case "exact":
+			query = "SELECT id, `key`, `value` FROM exact WHERE id = ?"
+		case "contains":
+			query = "SELECT id, `key`, `value` FROM contains WHERE id = ?"
+		case "regex":
+			query = "SELECT id, `key`, `value` FROM regex WHERE id = ?"
+		case "prefix":
+			query = "SELECT id, `key`, `value` FROM prefix WHERE id = ?"
+		case "suffix":
+			query = "SELECT id, `key`, `value` FROM suffix WHERE id = ?"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
 		}
 	}
-	
-	var query string
-	switch tableName {
-	case "exact":
-		query = fmt.Sprintf("SELECT %s FROM exact WHERE id = ?", columnList)
-	case "contains":
-		query = fmt.Sprintf("SELECT %s FROM contains WHERE id = ?", columnList)
-	case "regex":
-		query = fmt.Sprintf("SELECT %s FROM regex WHERE id = ?", columnList)
-	case "prefix":
-		query = fmt.Sprintf("SELECT %s FROM prefix WHERE id = ?", columnList)
-	case "suffix":
-		query = fmt.Sprintf("SELECT %s FROM suffix WHERE id = ?", columnList)
-	default:
-		return "", fmt.Errorf("unsupported table: %s", tableName)
-	}
-	
+
 	return query, nil
 }
 
@@ -87,34 +96,43 @@ func (qb *SQLQueryBuilder) BuildSelectAll(tableName string, columns []string) (s
 	if err := qb.validator.ValidateTable(tableName); err != nil {
 		return "", err
 	}
-	
-	columnList := "id, `key`, `value`"
-	if len(columns) > 0 {
-		columnList = ""
-		for i, col := range columns {
-			if i > 0 {
-				columnList += ", "
-			}
-			columnList += col
+
+	// 使用预定义的安全查询模式
+	var query string
+	if len(columns) == 6 {
+		// 完整列查询（适用于SQLite扩展字段）
+		switch tableName {
+		case "exact":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact"
+		case "contains":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains"
+		case "regex":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex"
+		case "prefix":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM prefix"
+		case "suffix":
+			query = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM suffix"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
+		}
+	} else {
+		// 基本列查询
+		switch tableName {
+		case "exact":
+			query = "SELECT id, `key`, `value` FROM exact"
+		case "contains":
+			query = "SELECT id, `key`, `value` FROM contains"
+		case "regex":
+			query = "SELECT id, `key`, `value` FROM regex"
+		case "prefix":
+			query = "SELECT id, `key`, `value` FROM prefix"
+		case "suffix":
+			query = "SELECT id, `key`, `value` FROM suffix"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
 		}
 	}
-	
-	var query string
-	switch tableName {
-	case "exact":
-		query = fmt.Sprintf("SELECT %s FROM exact", columnList)
-	case "contains":
-		query = fmt.Sprintf("SELECT %s FROM contains", columnList)
-	case "regex":
-		query = fmt.Sprintf("SELECT %s FROM regex", columnList)
-	case "prefix":
-		query = fmt.Sprintf("SELECT %s FROM prefix", columnList)
-	case "suffix":
-		query = fmt.Sprintf("SELECT %s FROM suffix", columnList)
-	default:
-		return "", fmt.Errorf("unsupported table: %s", tableName)
-	}
-	
+
 	return query, nil
 }
 
@@ -123,39 +141,43 @@ func (qb *SQLQueryBuilder) BuildInsert(tableName string, columns []string) (stri
 	if err := qb.validator.ValidateTable(tableName); err != nil {
 		return "", err
 	}
-	
-	columnList := "`key`, `value`"
-	placeholders := "?, ?"
-	
-	if len(columns) > 0 {
-		columnList = ""
-		placeholders = ""
-		for i, col := range columns {
-			if i > 0 {
-				columnList += ", "
-				placeholders += ", "
-			}
-			columnList += col
-			placeholders += "?"
+
+	// 使用预定义的安全查询模式
+	var query string
+	if len(columns) == 5 {
+		// 完整插入（包括Telegraph字段）
+		switch tableName {
+		case "exact":
+			query = "INSERT INTO exact (`key`, `value`, `content_type`, `telegraph_url`, `telegraph_path`) VALUES (?, ?, ?, ?, ?)"
+		case "contains":
+			query = "INSERT INTO contains (`key`, `value`, `content_type`, `telegraph_url`, `telegraph_path`) VALUES (?, ?, ?, ?, ?)"
+		case "regex":
+			query = "INSERT INTO regex (`key`, `value`, `content_type`, `telegraph_url`, `telegraph_path`) VALUES (?, ?, ?, ?, ?)"
+		case "prefix":
+			query = "INSERT INTO prefix (`key`, `value`, `content_type`, `telegraph_url`, `telegraph_path`) VALUES (?, ?, ?, ?, ?)"
+		case "suffix":
+			query = "INSERT INTO suffix (`key`, `value`, `content_type`, `telegraph_url`, `telegraph_path`) VALUES (?, ?, ?, ?, ?)"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
+		}
+	} else {
+		// 基本插入（key, value）
+		switch tableName {
+		case "exact":
+			query = "INSERT INTO exact (`key`, `value`) VALUES (?, ?)"
+		case "contains":
+			query = "INSERT INTO contains (`key`, `value`) VALUES (?, ?)"
+		case "regex":
+			query = "INSERT INTO regex (`key`, `value`) VALUES (?, ?)"
+		case "prefix":
+			query = "INSERT INTO prefix (`key`, `value`) VALUES (?, ?)"
+		case "suffix":
+			query = "INSERT INTO suffix (`key`, `value`) VALUES (?, ?)"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
 		}
 	}
-	
-	var query string
-	switch tableName {
-	case "exact":
-		query = fmt.Sprintf("INSERT INTO exact (%s) VALUES (%s)", columnList, placeholders)
-	case "contains":
-		query = fmt.Sprintf("INSERT INTO contains (%s) VALUES (%s)", columnList, placeholders)
-	case "regex":
-		query = fmt.Sprintf("INSERT INTO regex (%s) VALUES (%s)", columnList, placeholders)
-	case "prefix":
-		query = fmt.Sprintf("INSERT INTO prefix (%s) VALUES (%s)", columnList, placeholders)
-	case "suffix":
-		query = fmt.Sprintf("INSERT INTO suffix (%s) VALUES (%s)", columnList, placeholders)
-	default:
-		return "", fmt.Errorf("unsupported table: %s", tableName)
-	}
-	
+
 	return query, nil
 }
 
@@ -164,38 +186,43 @@ func (qb *SQLQueryBuilder) BuildUpdate(tableName string, setColumns []string, wh
 	if err := qb.validator.ValidateTable(tableName); err != nil {
 		return "", err
 	}
-	
-	setClause := "`value` = ?"
-	if len(setColumns) > 0 {
-		setClause = ""
-		for i, col := range setColumns {
-			if i > 0 {
-				setClause += ", "
-			}
-			setClause += fmt.Sprintf("%s = ?", col)
+
+	// 使用预定义的安全查询模式
+	var query string
+	if len(setColumns) == 4 {
+		// 完整更新（包括Telegraph字段）
+		switch tableName {
+		case "exact":
+			query = "UPDATE exact SET `value` = ?, `content_type` = ?, `telegraph_url` = ?, `telegraph_path` = ? WHERE `key` = ?"
+		case "contains":
+			query = "UPDATE contains SET `value` = ?, `content_type` = ?, `telegraph_url` = ?, `telegraph_path` = ? WHERE `key` = ?"
+		case "regex":
+			query = "UPDATE regex SET `value` = ?, `content_type` = ?, `telegraph_url` = ?, `telegraph_path` = ? WHERE `key` = ?"
+		case "prefix":
+			query = "UPDATE prefix SET `value` = ?, `content_type` = ?, `telegraph_url` = ?, `telegraph_path` = ? WHERE `key` = ?"
+		case "suffix":
+			query = "UPDATE suffix SET `value` = ?, `content_type` = ?, `telegraph_url` = ?, `telegraph_path` = ? WHERE `key` = ?"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
+		}
+	} else {
+		// 基本更新（只更新value）
+		switch tableName {
+		case "exact":
+			query = "UPDATE exact SET `value` = ? WHERE `key` = ?"
+		case "contains":
+			query = "UPDATE contains SET `value` = ? WHERE `key` = ?"
+		case "regex":
+			query = "UPDATE regex SET `value` = ? WHERE `key` = ?"
+		case "prefix":
+			query = "UPDATE prefix SET `value` = ? WHERE `key` = ?"
+		case "suffix":
+			query = "UPDATE suffix SET `value` = ? WHERE `key` = ?"
+		default:
+			return "", fmt.Errorf("unsupported table: %s", tableName)
 		}
 	}
-	
-	if whereColumn == "" {
-		whereColumn = "`key`"
-	}
-	
-	var query string
-	switch tableName {
-	case "exact":
-		query = fmt.Sprintf("UPDATE exact SET %s WHERE %s = ?", setClause, whereColumn)
-	case "contains":
-		query = fmt.Sprintf("UPDATE contains SET %s WHERE %s = ?", setClause, whereColumn)
-	case "regex":
-		query = fmt.Sprintf("UPDATE regex SET %s WHERE %s = ?", setClause, whereColumn)
-	case "prefix":
-		query = fmt.Sprintf("UPDATE prefix SET %s WHERE %s = ?", setClause, whereColumn)
-	case "suffix":
-		query = fmt.Sprintf("UPDATE suffix SET %s WHERE %s = ?", setClause, whereColumn)
-	default:
-		return "", fmt.Errorf("unsupported table: %s", tableName)
-	}
-	
+
 	return query, nil
 }
 
@@ -204,27 +231,24 @@ func (qb *SQLQueryBuilder) BuildDelete(tableName string, whereColumn string) (st
 	if err := qb.validator.ValidateTable(tableName); err != nil {
 		return "", err
 	}
-	
-	if whereColumn == "" {
-		whereColumn = "`key`"
-	}
-	
+
+	// 使用预定义的安全查询模式（总是使用key作为条件）
 	var query string
 	switch tableName {
 	case "exact":
-		query = fmt.Sprintf("DELETE FROM exact WHERE %s = ?", whereColumn)
+		query = "DELETE FROM exact WHERE `key` = ?"
 	case "contains":
-		query = fmt.Sprintf("DELETE FROM contains WHERE %s = ?", whereColumn)
+		query = "DELETE FROM contains WHERE `key` = ?"
 	case "regex":
-		query = fmt.Sprintf("DELETE FROM regex WHERE %s = ?", whereColumn)
+		query = "DELETE FROM regex WHERE `key` = ?"
 	case "prefix":
-		query = fmt.Sprintf("DELETE FROM prefix WHERE %s = ?", whereColumn)
+		query = "DELETE FROM prefix WHERE `key` = ?"
 	case "suffix":
-		query = fmt.Sprintf("DELETE FROM suffix WHERE %s = ?", whereColumn)
+		query = "DELETE FROM suffix WHERE `key` = ?"
 	default:
 		return "", fmt.Errorf("unsupported table: %s", tableName)
 	}
-	
+
 	return query, nil
 }
 
@@ -282,7 +306,7 @@ func (ops *CommonSQLOperations) QueryByID(id int, matchType MatchType, columns [
 func (ops *CommonSQLOperations) AddEntry(key, value, tableName string, extraArgs ...interface{}) error {
 	var columns []string
 	var args []interface{}
-	
+
 	if len(extraArgs) == 0 {
 		// 基本插入：key, value
 		columns = []string{"`key`", "`value`"}
@@ -308,7 +332,7 @@ func (ops *CommonSQLOperations) AddEntry(key, value, tableName string, extraArgs
 func (ops *CommonSQLOperations) UpdateEntry(key, value, tableName string, extraArgs ...interface{}) error {
 	var setColumns []string
 	var args []interface{}
-	
+
 	if len(extraArgs) == 0 {
 		// 基本更新：value
 		setColumns = []string{"`value`"}
@@ -384,7 +408,7 @@ func (ops *CommonSQLOperations) ListEntries(tableName string, columns []string) 
 		case "suffix":
 			entry.MatchType = MatchSuffix
 		}
-		
+
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -396,27 +420,31 @@ func (ops *CommonSQLOperations) QueryWithCondition(query, tableName string, colu
 	var rows *sql.Rows
 	var err error
 
-	columnList := "id, `key`, `value`"
-	if len(columns) == 6 {
-		columnList = "id, key, value, content_type, telegraph_url, telegraph_path"
-	}
-
+	// 使用预定义的查询字符串而不是动态构建以防止SQL注入
 	switch tableName {
 	case "exact":
-		sqlQuery = fmt.Sprintf("SELECT %s FROM exact WHERE `key` = ?", columnList)
+		if len(columns) == 6 {
+			sqlQuery = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM exact WHERE `key` = ?"
+		} else {
+			sqlQuery = "SELECT id, `key`, `value` FROM exact WHERE `key` = ?"
+		}
 		rows, err = ops.db.Query(sqlQuery, query)
 	case "contains":
 		if len(columns) == 6 {
 			// SQLite syntax
-			sqlQuery = fmt.Sprintf("SELECT %s FROM contains WHERE `key` LIKE '%%' || ? || '%%'", columnList)
+			sqlQuery = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM contains WHERE `key` LIKE '%' || ? || '%'"
 		} else {
 			// MySQL syntax
-			sqlQuery = fmt.Sprintf("SELECT %s FROM contains WHERE `key` LIKE CONCAT('%%', ?, '%%')", columnList)
+			sqlQuery = "SELECT id, `key`, `value` FROM contains WHERE `key` LIKE CONCAT('%', ?, '%')"
 		}
 		rows, err = ops.db.Query(sqlQuery, query)
 	case "regex":
 		// Regex matching needs to be done in application code
-		sqlQuery = fmt.Sprintf("SELECT %s FROM regex", columnList)
+		if len(columns) == 6 {
+			sqlQuery = "SELECT id, key, value, content_type, telegraph_url, telegraph_path FROM regex"
+		} else {
+			sqlQuery = "SELECT id, `key`, `value` FROM regex"
+		}
 		rows, err = ops.db.Query(sqlQuery)
 		if err != nil {
 			return nil, err
@@ -463,7 +491,7 @@ func (ops *CommonSQLOperations) QueryWithCondition(query, tableName string, colu
 				return nil, err
 			}
 		}
-		
+
 		// 根据表名设置MatchType
 		switch tableName {
 		case "exact":

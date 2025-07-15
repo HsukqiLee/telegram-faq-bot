@@ -331,7 +331,7 @@ func (s *SQLiteDB) Reload() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 重新初始化common operations
 	s.commonOps = NewCommonSQLOperations(s.db)
 	return nil
