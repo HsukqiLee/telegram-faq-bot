@@ -264,7 +264,7 @@ func (m *MySQLDB) Reload() error {
 		"CREATE TABLE IF NOT EXISTS ai_models (id INTEGER PRIMARY KEY AUTO_INCREMENT, provider VARCHAR(100) NOT NULL, model_id VARCHAR(255) NOT NULL, model_name VARCHAR(255) NOT NULL, description TEXT DEFAULT '', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY unique_provider_model (provider, model_id))",
 		"CREATE TABLE IF NOT EXISTS user_preferences (user_id BIGINT PRIMARY KEY, preferred_model_id VARCHAR(255) NOT NULL, preferred_provider VARCHAR(100) NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)",
 	}
-	
+
 	for _, query := range tableCreationQueries {
 		_, err = m.db.Exec(query)
 		if err != nil {

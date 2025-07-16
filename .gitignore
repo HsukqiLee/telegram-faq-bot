@@ -91,4 +91,4 @@ test.json
 .dockerignore
 
 # Ignore vscode AI rules
-.github\copilot-instructions.md
+.github/copilot-instructions.md

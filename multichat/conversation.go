@@ -522,6 +522,31 @@ func (cm *ConversationManager) RetryLastMessage(chatID int64, preferredProvider 
 	}
 	cm.conversationsMutex.Unlock()
 
+	// 清除AI缓存，确保重试时不会命中缓存
+	if cm.redisClient != nil && cm.redisClient.IsAICacheEnabled() {
+		// 确定实际使用的提供商和模型
+		actualProvider := preferredProvider
+		actualModel := preferredModel
+
+		// 如果没有指定，从服务获取默认值
+		if actualProvider == "" || actualModel == "" {
+			defaultProvider, defaultModel := cm.multiChatService.GetDefaultProviderAndModel()
+			if actualProvider == "" {
+				actualProvider = defaultProvider
+			}
+			if actualModel == "" {
+				actualModel = defaultModel
+			}
+		}
+
+		// 删除相关的AI缓存
+		if err := cm.redisClient.DeleteAICache(actualProvider, actualModel, lastInput); err != nil {
+			log.Printf("Failed to delete AI cache for retry (chat %d): %v", chatID, err)
+		} else {
+			log.Printf("AI cache cleared for retry (chat %d): %s/%s", chatID, actualProvider, actualModel)
+		}
+	}
+
 	// 使用保存的用户输入重新获取响应
 	return cm.GetResponse(chatID, lastInput, preferredProvider, preferredModel)
 }
@@ -546,6 +571,31 @@ func (cm *ConversationManager) RetryLastMessageWithCallback(chatID int64, prefer
 		}
 	}
 	cm.conversationsMutex.Unlock()
+
+	// 清除AI缓存，确保重试时不会命中缓存
+	if cm.redisClient != nil && cm.redisClient.IsAICacheEnabled() {
+		// 确定实际使用的提供商和模型
+		actualProvider := preferredProvider
+		actualModel := preferredModel
+
+		// 如果没有指定，从服务获取默认值
+		if actualProvider == "" || actualModel == "" {
+			defaultProvider, defaultModel := cm.multiChatService.GetDefaultProviderAndModel()
+			if actualProvider == "" {
+				actualProvider = defaultProvider
+			}
+			if actualModel == "" {
+				actualModel = defaultModel
+			}
+		}
+
+		// 删除相关的AI缓存
+		if err := cm.redisClient.DeleteAICache(actualProvider, actualModel, lastInput); err != nil {
+			log.Printf("Failed to delete AI cache for retry (chat %d): %v", chatID, err)
+		} else {
+			log.Printf("AI cache cleared for retry (chat %d): %s/%s", chatID, actualProvider, actualModel)
+		}
+	}
 
 	// 使用保存的用户输入重新获取响应
 	return cm.GetResponseWithCallback(chatID, lastInput, preferredProvider, preferredModel, callback)

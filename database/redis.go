@@ -176,6 +176,18 @@ func (r *RedisClient) GetAICache(provider, model, question string) (string, erro
 	return r.client.Get(ctx, key).Result()
 }
 
+// DeleteAICache 删除AI回复缓存
+func (r *RedisClient) DeleteAICache(provider, model, question string) error {
+	if !r.IsAICacheEnabled() {
+		return nil // AI缓存未启用
+	}
+
+	ctx := context.Background()
+	key := r.generateAICacheKey(provider, model, question)
+
+	return r.client.Del(ctx, key).Err()
+}
+
 // generateAICacheKey 生成AI缓存键
 func (r *RedisClient) generateAICacheKey(provider, model, question string) string {
 	// 使用SHA-256哈希来生成固定长度的问题标识
