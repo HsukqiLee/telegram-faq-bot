@@ -435,7 +435,7 @@ func (h *CallbackHandler) handleListAdminCallback(bot *tgbotapi.BotAPI, callback
 			log.Printf("Error parsing page number: %v", err)
 			return
 		}
-		h.adminHandler.HandleListAdminCommand(bot, callbackQuery.Message, page)
+		h.adminHandler.HandleListAdminCommandEdit(bot, callbackQuery.Message, page, 0)
 	}
 }
 

@@ -453,18 +453,9 @@ func (h *CommandHandler) handleBatchDeleteCommand(bot *tgbotapi.BotAPI, message 
 
 	// 验证并转换匹配类型
 	var matchType database.MatchType
-	switch matchTypeStr {
-	case "exact":
-		matchType = database.MatchExact
-	case "contains":
-		matchType = database.MatchContains
-	case "regex":
-		matchType = database.MatchRegex
-	case "prefix":
-		matchType = database.MatchPrefix
-	case "suffix":
-		matchType = database.MatchSuffix
-	default:
+	var errType error
+	matchType, errType = utils.ParseMatchType(matchTypeStr)
+	if errType != nil {
 		bot.Send(tgbotapi.NewMessage(message.Chat.ID, "匹配类型错误，请使用 exact, contains, regex, prefix, suffix"))
 		return
 	}

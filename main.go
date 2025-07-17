@@ -2,14 +2,23 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"TGFaqBot/bot"
+	"TGFaqBot/cli"
 	"TGFaqBot/config"
 	"TGFaqBot/database"
 	"TGFaqBot/multichat"
 )
 
 func main() {
+	// 如果有命令行参数，优先处理CLI命令
+	if len(os.Args) > 1 {
+		cliApp := cli.NewCLI()
+		cliApp.Run()
+		return
+	}
+
 	// 加载配置
 	conf, err := config.LoadConfig("config.json")
 	if err != nil {

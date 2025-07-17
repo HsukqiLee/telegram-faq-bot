@@ -92,3 +92,6 @@ test.json
 
 # Ignore vscode AI rules
 .github/copilot-instructions.md
+
+# CLI generated files
+CLI.md
