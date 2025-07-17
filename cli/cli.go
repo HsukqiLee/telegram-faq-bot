@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"TGFaqBot/cliutil"
 )
 
 // CLI 命令行界面
@@ -134,9 +136,7 @@ func (c *CLI) handleUninstall() {
 	var serviceName string
 
 	flagSet := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	flagSet.StringVar(&serviceName, "name", "telegram-faq-bot", "服务名称")
-	flagSet.StringVar(&serviceName, "n", "telegram-faq-bot", "服务名称 (简写)")
-
+	cliutil.SetupServiceFlagSet(flagSet, &serviceName)
 	flagSet.Parse(c.args[1:])
 
 	if err := uninstallService(serviceName); err != nil {
@@ -152,9 +152,7 @@ func (c *CLI) handleStart() {
 	var serviceName string
 
 	flagSet := flag.NewFlagSet("start", flag.ExitOnError)
-	flagSet.StringVar(&serviceName, "name", "telegram-faq-bot", "服务名称")
-	flagSet.StringVar(&serviceName, "n", "telegram-faq-bot", "服务名称 (简写)")
-
+	cliutil.SetupServiceFlagSet(flagSet, &serviceName)
 	flagSet.Parse(c.args[1:])
 
 	if err := startService(serviceName); err != nil {
@@ -170,9 +168,7 @@ func (c *CLI) handleStop() {
 	var serviceName string
 
 	flagSet := flag.NewFlagSet("stop", flag.ExitOnError)
-	flagSet.StringVar(&serviceName, "name", "telegram-faq-bot", "服务名称")
-	flagSet.StringVar(&serviceName, "n", "telegram-faq-bot", "服务名称 (简写)")
-
+	cliutil.SetupServiceFlagSet(flagSet, &serviceName)
 	flagSet.Parse(c.args[1:])
 
 	if err := stopService(serviceName); err != nil {
@@ -188,9 +184,7 @@ func (c *CLI) handleRestart() {
 	var serviceName string
 
 	flagSet := flag.NewFlagSet("restart", flag.ExitOnError)
-	flagSet.StringVar(&serviceName, "name", "telegram-faq-bot", "服务名称")
-	flagSet.StringVar(&serviceName, "n", "telegram-faq-bot", "服务名称 (简写)")
-
+	cliutil.SetupServiceFlagSet(flagSet, &serviceName)
 	flagSet.Parse(c.args[1:])
 
 	if err := restartService(serviceName); err != nil {
@@ -206,9 +200,7 @@ func (c *CLI) handleStatus() {
 	var serviceName string
 
 	flagSet := flag.NewFlagSet("status", flag.ExitOnError)
-	flagSet.StringVar(&serviceName, "name", "telegram-faq-bot", "服务名称")
-	flagSet.StringVar(&serviceName, "n", "telegram-faq-bot", "服务名称 (简写)")
-
+	cliutil.SetupServiceFlagSet(flagSet, &serviceName)
 	flagSet.Parse(c.args[1:])
 
 	status, err := getServiceStatus(serviceName)

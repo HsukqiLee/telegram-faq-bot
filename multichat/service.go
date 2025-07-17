@@ -84,15 +84,7 @@ func (s *MultiChatService) GetCompletion(messages []Message, preferredProvider s
 
 			// 分类错误类型
 			errorType := "Unknown"
-			if strings.Contains(err.Error(), "failed to send request") {
-				errorType = "Network"
-			} else if strings.Contains(err.Error(), "API returned status") {
-				errorType = "API"
-			} else if strings.Contains(err.Error(), "failed to parse response") {
-				errorType = "Parse"
-			} else if strings.Contains(err.Error(), "API error") {
-				errorType = "Service"
-			}
+			errorType = ClassifyProviderError(err)
 
 			errorMsg := fmt.Sprintf("Provider %s (preferred model %s): [%s] %v", preferredProvider, preferredModel, errorType, err)
 			log.Printf("%s", errorMsg)
@@ -116,15 +108,7 @@ func (s *MultiChatService) GetCompletion(messages []Message, preferredProvider s
 
 			// 分类错误类型
 			errorType := "Unknown"
-			if strings.Contains(err.Error(), "failed to send request") {
-				errorType = "Network"
-			} else if strings.Contains(err.Error(), "API returned status") {
-				errorType = "API"
-			} else if strings.Contains(err.Error(), "failed to parse response") {
-				errorType = "Parse"
-			} else if strings.Contains(err.Error(), "API error") {
-				errorType = "Service"
-			}
+			errorType = ClassifyProviderError(err)
 
 			errorMsg := fmt.Sprintf("Provider %s (%s): [%s] %v", preferredProvider, model, errorType, err)
 			log.Printf("%s", errorMsg)
@@ -152,15 +136,7 @@ func (s *MultiChatService) GetCompletion(messages []Message, preferredProvider s
 
 		// 分类错误类型
 		errorType := "Unknown"
-		if strings.Contains(err.Error(), "failed to send request") {
-			errorType = "Network"
-		} else if strings.Contains(err.Error(), "API returned status") {
-			errorType = "API"
-		} else if strings.Contains(err.Error(), "failed to parse response") {
-			errorType = "Parse"
-		} else if strings.Contains(err.Error(), "API error") {
-			errorType = "Service"
-		}
+		errorType = ClassifyProviderError(err)
 
 		errorMsg := fmt.Sprintf("Provider %s (%s): [%s] %v", name, model, errorType, err)
 		log.Printf("%s", errorMsg)
